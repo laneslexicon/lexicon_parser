@@ -25,6 +25,9 @@ class LaneParser : public DomParser {
   void loadMap(const QString &); // load map from filename
   bool execSQL(const QString & dbname,const QString & sqlSource,bool overwrite=false);
   bool openDb(const QString & dbname,bool autoCreate = true);
+  void setConvertBuckwalter(bool v) {
+    m_cb = v;
+  }
   void dumpRoots();
   //  bool updateDb();
   bool updateDb();
@@ -38,8 +41,11 @@ class LaneParser : public DomParser {
    void setXsl(const QString & fileName) {
      m_teiXSL = fileName;
    }
+   bool parse();
+   QString convert(const QString &);
  private:
    QString m_teiXSL;
+   bool m_cb;     // convert buckwalter
    bool useXalan;
    XalanTransformer * m_xalan;
    LaneSettings m_settings;

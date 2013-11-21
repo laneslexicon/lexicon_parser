@@ -1,6 +1,7 @@
 #include "laneparser.h"
 LaneParser::LaneParser(const QString & dbname) : DomParser() {
   openDb(dbname);
+  m_cb = true;
   mapper = im_new();
   loadMap("/home/andrewsg/public_html/extjsapps/test02/data/maps/perseus.json");
   loadMap("/home/andrewsg/public_html/extjsapps/test02/mappings/js/buckwalter-1.3.js");
@@ -15,6 +16,7 @@ LaneParser::LaneParser() : DomParser()
   loadMap("/home/andrewsg/public_html/extjsapps/test02/data/maps/perseus.json");
   loadMap("/home/andrewsg/public_html/extjsapps/test02/mappings/js/buckwalter-1.3.js");
   //  entry = new QMap<QString,QString>;
+  m_cb = true;
   nientry = new QMap<QString,ni>;
   m_xalan = getXalan();
   useXalan = true;
@@ -30,11 +32,40 @@ void LaneParser::loadMap(const QString & fileName) {
 void LaneParser::flush() {
   flushRoots();
 }
+bool LaneParser::parse() {
+  if (m_cb) {
+  m_parsePass++;
+  parseInit(m_parsePass);
+  loadDOM();  // the first pass do the translate updating DOM in-place
+  flush();    // reset anything
+  /**
+    re-read the DOM building whatever data structure using the converted
+    text
+  */
+  }
+  m_parsePass++;
+  parseInit(2);
+  loadDOM();
+
+}
+
 void LaneParser::flushRoots() {
   //  roots.clear();
   xref.clear();
   buckwalter.clear();
   nroots.clear();
+}
+QString LaneParser::convert(const QString & text) {
+  bool ok;
+  if (! m_cb) {
+    return text;
+  }
+  QString t;
+  t = im_convert_string(mapper,"buckwalter",text,&ok);
+  if (! ok) {
+    qWarning() << "Conversion error" << text << t;
+  }
+  return t;
 }
 bool LaneParser::execSQL(const QString & dbname,const QString & sqlSource,bool overwrite) {
   QFile file(sqlSource);
@@ -120,27 +151,22 @@ void LaneParser::traverseXml(QDomNode& node)
                     //              emit gotText(domText.data());
                     emit gotTextNode(&domText);
                     QString str  = domText.data();
+                    QString c = convert(str);
 
-                      bool ok;
-                      QString c = im_convert_string(mapper,"buckwalter",str,&ok);
 
-                      if (! ok ) {
-                        qDebug() << "translate" << pe.tagName() << QString("node %1 : [%2][%3]").arg(currentId).arg(str).arg(c);
-                      }
-
-                      if (! buckwalter.contains(str))
-                        buckwalter.insert(str,c); // we are just going to overwrite dups
-                      if (! xref.contains(c)) {
-                        QStringList * l = new QStringList;
+                    if (! buckwalter.contains(str))
+                      buckwalter.insert(str,c); // we are just going to overwrite dups
+                    if (! xref.contains(c)) {
+                      QStringList * l = new QStringList;
+                      l->append(currentId);
+                      xref.insert(c,l);
+                    }
+                    else {
+                      QStringList * l = (QStringList *)xref.value(c);
+                      if (! l->contains(currentId))
                         l->append(currentId);
-                        xref.insert(c,l);
-                      }
-                      else {
-                        QStringList * l = (QStringList *)xref.value(c);
-                        if (! l->contains(currentId))
-                          l->append(currentId);
-                      }
-                      domText.setData(c);
+                    }
+                    domText.setData(c);
 
                     //              domText.setData("xxxxx");
                   }
@@ -158,14 +184,15 @@ void LaneParser::traverseXml(QDomNode& node)
               if ((domElement.tagName() == "div1") &&
                   (domElement.attribute("type") == "alphabetical letter")) {
                 //                qDebug() << "got letter" << domElement.attribute("n");
-                qDebug() << "convert call 1";
-                currentLetter = im_convert_string(mapper,"buckwalter",domElement.attribute("n"));
+                //                qDebug() << "convert call 1";
+                currentLetter = convert(domElement.attribute("n"));
               }
               // these are the root items
-              if ((domElement.tagName() == "div2") &&
+              else if ((domElement.tagName() == "div2") &&
                   (domElement.hasAttribute("type")) &&
                   domElement.attribute("type") == "root") {
                 emit(gotRoot(domElement.attribute("n")));
+                qDebug() << "Found root" << domElement.attribute("n");
                 if (! currentRoot.isEmpty()) {
                   //                  roots.insert(currentRoot,entry);
                   if (nroots.contains(currentRoot))  {
@@ -183,15 +210,15 @@ void LaneParser::traverseXml(QDomNode& node)
                   arroot = arroot.remove("Quasi");
                 }
                 arroot = arroot.trimmed();
-                qDebug() << "convert call 2";
-                currentRoot = im_convert_string(mapper,"buckwalter",arroot);
+                //                qDebug() << "convert call 2";
+                currentRoot = convert(arroot);
                 emit(gotRootNode(domNode));
               }
               // this should be entryFree
-              if ((domElement.tagName() == "entryFree") && !  domElement.hasAttributes()) {
+              else if ((domElement.tagName() == "entryFree") && !  domElement.hasAttributes()) {
                 qDebug() << "Node without attribs";
               }
-              if ((domElement.tagName() == "entryFree") && domElement.hasAttribute("key")) {
+              else if ((domElement.tagName() == "entryFree") && domElement.hasAttribute("key")) {
                 //          qDebug() << "key" << domElement.attribute("key");
                 QString t;
                 QString key = domElement.attribute("key");
@@ -199,8 +226,8 @@ void LaneParser::traverseXml(QDomNode& node)
                 if (m_parsePass == 1) {
                   bool ok;
                   qDebug() << "pass" << m_parsePass << "got node" << mapkey << key;
-                qDebug() << "convert call 3";
-                  t = im_convert_string(mapper,"buckwalter",key,&ok);
+                  //                  qDebug() << "convert call 3";
+                  t = convert(key);
                   domElement.setAttribute("key",t);
                 }
                 else {
@@ -313,8 +340,8 @@ bool LaneParser::updateDb() {
     }
   }
   //  if (c > 0) {
-    db.commit();
-    //  }
+  db.commit();
+  //  }
   qDebug() << "update db done" << currentFile << total;
   return ret;
 }

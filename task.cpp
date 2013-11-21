@@ -94,7 +94,7 @@ void SqlTask::timings() {
 
 }
 void SqlTask::parseFile() {
-  qDebug() << "parsing" << sourceName;
+  qDebug() << Q_FUNC_INFO << "parsing" << sourceName << "buckwalter convert" << convert;
   if (sourceName.isEmpty() ||
       dbName.isEmpty()) {
     qDebug() << "Missing params" << sourceName << dbName;
@@ -103,6 +103,7 @@ void SqlTask::parseFile() {
   }
   parser = new LaneParser(dbName);
   parser->setXalan(! noTransform );
+  parser->setConvertBuckwalter(convert);
   if (parser->readFile(sourceName,false)) {
     parser->parse();
     if (dbUpdate)
@@ -130,6 +131,7 @@ void SqlTask::parseLane() {
   QDirIterator it(dirName, QDirIterator::Subdirectories);
   parser = new LaneParser(dbName);
   parser->setXalan(! noTransform );
+  parser->setConvertBuckwalter(convert);
   while (it.hasNext()) {
     it.next();
     qDebug() << it.filePath() << it.fileName();

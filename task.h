@@ -37,7 +37,7 @@ public:
   bool dbUpdate;
   bool noTransform;
   bool dumpRoots;
-
+  bool convert;     // convert buckwalter to arabic
 public slots:
   void run();
   void parseLane();

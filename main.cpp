@@ -43,10 +43,9 @@ int main(int argc, char *argv[])
   bool noDbUpdate = false;
   bool noTransform = false;
   bool dumpRoots = false;
-  bool doSalmone = false;
   bool doAll = false;
-  bool doQuran = false;
   bool doLaneVolume = false;
+  bool doBuckwalter = false;
   int ix;
   optmap.insert("-d",1);
   optmap.insert("-s",1);
@@ -63,6 +62,7 @@ int main(int argc, char *argv[])
   optmap.insert("-lane",0);
   optmap.insert("-vol",1);
   optmap.insert("-quran",0);
+  optmap.insert("-b",0);
   while( ! cmdargs.isEmpty()) {
     QString opt = cmdargs.takeFirst();
     //    qDebug() << "arg" << opt;
@@ -71,6 +71,9 @@ int main(int argc, char *argv[])
       QStringList optargs;
       for(int i=0;i < argcount;i++) {
         optargs << cmdargs.takeFirst();
+      }
+      if (opt == "-b") {
+        doBuckwalter = true;
       }
       if (opt == "-d") {
         qDebug() << "directory" << optargs[0];
@@ -100,18 +103,12 @@ int main(int argc, char *argv[])
       if (opt == "-xalan") {
         doXalan = true;
       }
-      if (opt == "-salmone") {
-        doSalmone = true;
-      }
       if (opt == "-all") {
         doAll = true;
       }
       if (opt == "-vol") {
         doLaneVolume = true;
         task.sourceName = optargs[0];
-      }
-      if (opt == "-quran") {
-        doQuran = true;
       }
       if (opt == "-no-update") {
         noDbUpdate = true;
@@ -127,6 +124,7 @@ int main(int argc, char *argv[])
   task.dbUpdate = ! noDbUpdate;
   task.noTransform = noTransform;
   task.dumpRoots = dumpRoots;
+  task.convert = doBuckwalter;
   if (doAll)
     QTimer::singleShot(0, &task, SLOT(parseLane()));
   else if (doLaneVolume)

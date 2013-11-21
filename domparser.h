@@ -19,7 +19,7 @@ class DomParser : public QObject {
   bool writeNode(const QDomNode &,const QString &);
   bool writeNode(const QDomNode &,QString &);
   bool loadDOM();
-  bool parse();
+  virtual bool parse();
  protected:
   int m_parsePass;
   QDomDocument doc;
