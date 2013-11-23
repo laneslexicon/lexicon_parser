@@ -11,6 +11,14 @@ LaneParser::LaneParser(const QString & dbname) : DomParser() {
   nientry = new QMap<QString,ni>;
   m_xalan = getXalan();
   useXalan = true;
+  m_buckErrors = 0;
+  m_buckLogFile.setFileName("conversion.log");
+  if (m_buckLogFile.open(QFile::WriteOnly | QFile::Truncate)) {
+    m_buckLog.setDevice(&m_buckLogFile);
+    //    out << "Result: " << qSetFieldWidth(10) << left << 3.14 << 2.7;
+    // writes "Result: 3.14      2.7       "
+  }
+
 }
 LaneParser::LaneParser() : DomParser()
 {
@@ -24,10 +32,20 @@ LaneParser::LaneParser() : DomParser()
   nientry = new QMap<QString,ni>;
   m_xalan = getXalan();
   useXalan = true;
+  m_buckErrors = 0;
+  m_buckLogFile.setFileName("conversion.log");
+  if (m_buckLogFile.open(QFile::WriteOnly | QFile::Truncate)) {
+    m_buckLog.setDevice(&m_buckLogFile);
+    //    out << "Result: " << qSetFieldWidth(10) << left << 3.14 << 2.7;
+    // writes "Result: 3.14      2.7       "
+  }
 }
 LaneParser::~LaneParser() {
   flushRoots();
   nientry->clear();
+  m_buckLog << QString("File %1, errors %2").arg(currentFile).arg(m_buckErrors);
+  m_buckLog.flush();
+  m_buckLogFile.close();
 }
 void LaneParser::loadMap(const QString & fileName) {
   QByteArray ba = fileName.toLocal8Bit();
@@ -60,7 +78,7 @@ void LaneParser::flushRoots() {
   buckwalter.clear();
   nroots.clear();
 }
-QString LaneParser::convert(const QString & text) {
+QString LaneParser::convert(const QString & text,int callId) {
   bool ok;
   if (! m_cb) {
     return text;
@@ -69,7 +87,11 @@ QString LaneParser::convert(const QString & text) {
   t = im_convert_string(mapper,"buckwalter",text,&ok);
   m_bok = ok;
   if (! ok) {
-    qWarning() << "Conversion error" << text << t;
+    m_buckErrors++;
+    m_buckLog << QString("conversion error %1 at node: %2\n").arg(callId).arg(m_currentEntryId);
+    m_buckLog << "Source: " << text << "\n";
+    m_buckLog << "At: " << mapper->m_errorIndex << "\n";
+    m_buckLog << "Char: " << mapper->m_errorChar << "\n";
   }
   return t;
 }
@@ -167,7 +189,7 @@ void LaneParser::traverseXml(QDomNode& node)
                     //              emit gotText(domText.data());
                     emit gotTextNode(&domText);
                     QString str  = domText.data();
-                    QString c = convert(str);
+                    QString c = convert(str,1);
 
 
                     if (! buckwalter.contains(str))
@@ -204,7 +226,7 @@ void LaneParser::traverseXml(QDomNode& node)
                   (domElement.attribute("type") == "alphabetical letter")) {
                 //                qDebug() << "got letter" << domElement.attribute("n");
                 //                qDebug() << "convert call 1";
-                currentLetter = convert(domElement.attribute("n"));
+                currentLetter = convert(domElement.attribute("n"),2);
               }
               // these are the root items
               else if ((domElement.tagName() == "div2") &&
@@ -231,10 +253,9 @@ void LaneParser::traverseXml(QDomNode& node)
                   }
                   arroot = arroot.trimmed();
                   //                qDebug() << "convert call 2";
-                  currentRoot = convert(arroot);
+                  currentRoot = convert(arroot,3);
                   emit(gotRootNode(domNode));
                 }
-              // this should be entryFree
               else if ((domElement.tagName() == "entryFree") && !  domElement.hasAttributes()) {
                 QString str;
                 QTextStream stream(&str);
@@ -290,7 +311,7 @@ void LaneParser::traverseXml(QDomNode& node)
                 if (m_parsePass == 1) {
                   qDebug() << "pass" << m_parsePass << "got node" << mapkey << key;
                   //                  qDebug() << "convert call 3";
-                  t = convert(key);
+                  t = convert(key,4);
                   domElement.setAttribute("key",t);
                 }
                 else {

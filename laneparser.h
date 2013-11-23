@@ -9,6 +9,7 @@
 #include <QSqlError>
 #include <QSqlDriver>
 #include <QRegExp>
+#include <QTextStream>
 #include <sstream>
 #include "xsltsupport.h"
 typedef struct {
@@ -43,7 +44,7 @@ class LaneParser : public DomParser {
      m_teiXSL = fileName;
    }
    bool parse();
-   QString convert(const QString &);
+   QString convert(const QString &,int callId=0);
  private:
    QString m_teiXSL;
    QString m_currentEntryId;
@@ -54,6 +55,9 @@ class LaneParser : public DomParser {
    LaneSettings m_settings;
   InputMapper * mapper;
   QSqlDatabase db;
+  QTextStream m_buckLog;
+  QFile m_buckLogFile;
+  int m_buckErrors;
   QMap<QString,QString> buckwalter;
   //  QMap<QString, QMap<QString,QString> *> roots;
   //  QMap<QString,QString> * entry;
