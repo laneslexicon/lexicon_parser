@@ -111,6 +111,9 @@ void SqlTask::parseFile() {
     if (dumpRoots)
       parser->dumpRoots();
   }
+  else {
+    qDebug() << "Could not read file" << sourceName;
+  }
   delete parser;
   qDebug() << "parsing finished";
   emit(finished());

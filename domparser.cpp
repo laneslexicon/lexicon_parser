@@ -22,6 +22,8 @@ bool DomParser::readFile(const QString & fileName,bool parse) {
 
   if (parse)
     loadDOM();
+
+  return true;
 }
 bool DomParser::parse() {
   m_parsePass++;

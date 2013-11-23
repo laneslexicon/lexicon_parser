@@ -11,11 +11,12 @@
 #include <QRegExp>
 #include <sstream>
 #include "xsltsupport.h"
-typedef struct ni {
+typedef struct {
   QString xml;
   QString txt;
   QString letter;
-} ;
+  QString itype;
+} ni;
 class LaneParser : public DomParser {
   Q_OBJECT
  public:
@@ -45,6 +46,8 @@ class LaneParser : public DomParser {
    QString convert(const QString &);
  private:
    QString m_teiXSL;
+   QString m_currentEntryId;
+   bool m_bok;    // whether or not the last call to im_convert_string work
    bool m_cb;     // convert buckwalter
    bool useXalan;
    XalanTransformer * m_xalan;
