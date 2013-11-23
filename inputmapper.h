@@ -32,6 +32,9 @@ class InputMapper {
   void setDebug(bool v) { m_debug = v;}
   QString getScript(const QString & map);
   bool m_debug;
+  QString m_errorSource;
+  QChar m_errorChar;
+  int m_errorIndex;
 };
 InputMapper * im_new();
 void im_free(InputMapper *);

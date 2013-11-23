@@ -738,7 +738,10 @@ QString im_convert_string(InputMapper * im,const QString & mapping,const QString
       if ((! cc->processed ) &&
           (c != ' '))
         { // indicates possible incorrect char
-        qDebug() << "convert error" << source << "at" << c;
+          //        qDebug() << "convert error" << source << "at" << c;
+        im->m_errorSource = source;
+        im->m_errorIndex = i;
+        im->m_errorChar = c;
         *ok = false;
       }
       else {
