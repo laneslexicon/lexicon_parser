@@ -78,6 +78,7 @@ class LaneParser : public DomParser {
   int m_rootId;
   int m_itypeId;
   int m_entryId;
+  int m_xrefId;
 
   int m_writeCount;
   int m_lastId;
@@ -87,7 +88,10 @@ class LaneParser : public DomParser {
   QSqlQuery m_rootQuery;
   QSqlQuery m_itypeQuery;
   QSqlQuery m_entryQuery;
+  QSqlQuery m_xrefQuery;
+
   void setupSQL();
+  bool writeXref(const QString & word,const QString & node,bool update=true);
   bool writeRoot(const QString & root,const QString & letter,bool update=true);
   bool writeItype(const QString & itype,const QString nodeId,const QString & word,const QString & xml,bool update=true);
   bool writeEntry(const QString & nodeId,const QString & word,const QString xml,bool update=true);
@@ -97,7 +101,7 @@ class LaneParser : public DomParser {
   QMap<QString, QMap<QString,ni> *> nroots;
   QMap<QString,ni> * nientry;
   QMap<QString,QStringList *> xref;
-  QString currentId;
+  QString currentId;   // the current nodeId (nNNNNN)
   QString currentRoot;
   QString currentLetter;
   virtual void traverseXml(QDomNode &);

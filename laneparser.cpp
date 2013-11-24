@@ -251,11 +251,15 @@ void LaneParser::traverseXml(QDomNode& node)
 
                     /// for this to work we will have to read up to the the entryFree
                     /// node and get the id, since
+                    if (! currentId.isEmpty()) {
+                      writeXref(c,currentId);
+                    }
                     if (! xref.contains(c)) {
                       QStringList * l = new QStringList;
                       l->append(currentId);
                       //                      qDebug() << "pass" << m_parsePass << "xref insert" << c << "at:" << m_currentEntryId;
                       xref.insert(c,l);
+                      qDebug() << "xref" << c << "node" << currentId;
                     }
                     else {
                       QStringList * l = (QStringList *)xref.value(c);
@@ -333,6 +337,7 @@ void LaneParser::traverseXml(QDomNode& node)
                 QString t;
                 QString key = domElement.attribute("key");
                 QString mapkey = domElement.attribute("id");
+                currentId = domElement.attribute("id");
                 QString itype;
                 // QDomNode form;
                 QStringList orthforms;
@@ -479,7 +484,7 @@ bool LaneParser::updateDb() {
   int c = 0;
   int total = 0;
 
-  updateXref();
+  //  updateXref();
 
   return true;
   QMapIterator<QString, QMap<QString, ni> *> i(nroots);
@@ -646,6 +651,7 @@ void LaneParser::setupSQL() {
   else {
     qWarning() << "Error preparing itype query" << t.lastError();
   }
+
   QSqlQuery e;
   e.prepare("INSERT INTO entry (rootId,nodeId,word,xml)"
                        "VALUES (:rootId,:nodeId,:word,:xml)");
@@ -655,8 +661,51 @@ void LaneParser::setupSQL() {
   else {
     qWarning() << "Error preparing entry query" << e.lastError();
   }
+
+  QSqlQuery x;
+  x.prepare("INSERT INTO xref (word,node)"
+            "VALUES (:word,:node)");
+  if (ok) {
+    m_xrefQuery = x;
+  }
+  else {
+    qWarning() << "Error preparing xref query" << x.lastError();
+  }
 }
 
+bool LaneParser::writeXref(const QString & word,const QString & node,bool update) {
+  bool ret = false;
+
+  m_sqlLog << QString("insert into xref values(%1,\"%2\",\"%3\")\n")
+    .arg(m_xrefId)
+    .arg(word)
+    .arg(node);
+  m_xrefId++;
+
+  if (! update ) {
+    return true;
+  }
+
+  m_xrefQuery.bindValue(":word",word);
+  m_xrefQuery.bindValue(":node",node);
+  ret = m_xrefQuery.exec();
+
+  if (m_writeCount == 0) {
+    m_db.transaction();
+  }
+
+  if (ret)  {
+    m_writeCount++;
+  }
+  else {
+    qWarning() << m_xrefQuery.lastError();
+  }
+  if (m_writeCount > 1000) {
+    m_db.commit();
+    m_writeCount = 0;
+  }
+  return ret;
+}
 bool LaneParser::writeRoot(const QString & root,const QString & letter,bool update) {
   bool ret = false;
 
