@@ -1,8 +1,9 @@
 #include "laneparser.h"
 LaneParser::LaneParser(const QString & dbname) : DomParser() {
-  openDb(dbname);
   m_cb = true;
+  m_dbName = dbname;
   mapper = im_new();
+  m_initDb = false;
   //  loadMap("/home/andrewsg/public_html/extjsapps/test02/data/maps/perseus.json");
   //  loadMap("/home/andrewsg/public_html/extjsapps/test02/mappings/js/buckwalter-1.3.js");
   //  entry = new QMap<QString,QString>;
@@ -24,14 +25,14 @@ LaneParser::LaneParser(const QString & dbname) : DomParser() {
     //    out << "Result: " << qSetFieldWidth(10) << left << 3.14 << 2.7;
     // writes "Result: 3.14      2.7       "
   }
-  m_rootId = 0;
-  m_itypeId = 0;
-  m_entryId = 0;
-
 }
+
 LaneParser::LaneParser() : DomParser()
 {
   mapper = im_new();
+  m_initDb = false;
+  m_dbName = "lanetest.sqlite";
+  m_sqlSource = "./sql/lanedb.sql";
   //  loadMap("/home/andrewsg/public_html/extjsapps/test02/data/maps/perseus.json");
   //  loadMap("/home/andrewsg/public_html/extjsapps/test02/mappings/js/buckwalter-1.3.js");
   //  entry = new QMap<QString,QString>;
@@ -54,11 +55,6 @@ LaneParser::LaneParser() : DomParser()
     //    out << "Result: " << qSetFieldWidth(10) << left << 3.14 << 2.7;
     // writes "Result: 3.14      2.7       "
   }
-
-  m_rootId = 0;
-  m_itypeId = 0;
-  m_entryId = 0;
-
 }
 LaneParser::~LaneParser() {
   flushRoots();
@@ -69,6 +65,10 @@ LaneParser::~LaneParser() {
 
   m_sqlLog.flush();
   m_SqlLogFile.close();
+  if (m_writeCount > 0) {
+    m_db.commit();
+    m_writeCount = 0;
+  }
 }
 void LaneParser::loadMap(const QString & fileName) {
   QByteArray ba = fileName.toLocal8Bit();
@@ -78,10 +78,26 @@ void LaneParser::flush() {
   flushRoots();
 }
 bool LaneParser::parse() {
-  qDebug() << Q_FUNC_INFO << m_cb << m_parsePass;
+  bool ok;
+  qDebug() << Q_FUNC_INFO;
+  qDebug() << "DB" << m_dbName;
+  qDebug() << "SQL" << m_sqlSource;
+  qDebug() << QString("Convert buckwalter: %1,initdb %2,update db: %3").arg(m_cb).arg(m_initDb).arg(m_updateDb);
+
+  if (m_initDb) {
+    ok = execSQL(m_dbName,m_sqlSource,true);
+    if (! ok ) {
+      m_updateDb = false;
+    }
+  }
+  if (m_updateDb) {
+    openDb(m_dbName,true);
+    setupSQL();
+  }
+
+
   if (m_cb) {
-    m_parsePass++;
-    parseInit(m_parsePass);
+    m_parsePass = 1;
     loadDOM();  // the first pass do the translate updating DOM in-place
 
     updateXref();
@@ -92,8 +108,7 @@ bool LaneParser::parse() {
        text
     */
   }
-  m_parsePass++;
-  parseInit(2);
+  m_parsePass = 2;
   loadDOM();
   return true;
 }
@@ -123,6 +138,15 @@ QString LaneParser::convert(const QString & text,int callId) {
   }
   return t;
 }
+/**
+ * Initialise the database from the supplied sql
+ *
+ * @param dbname
+ * @param sqlSource
+ * @param overwrite
+ *
+ * @return
+ */
 bool LaneParser::execSQL(const QString & dbname,const QString & sqlSource,bool overwrite) {
   QFile file(sqlSource);
   if (!file.open(QFile::ReadOnly | QFile::Text)) {
@@ -144,37 +168,39 @@ bool LaneParser::execSQL(const QString & dbname,const QString & sqlSource,bool o
   db.setDatabaseName(dbname);
   bool ok = db.open();
   if (ok)
-    db = QSqlDatabase::database();
+    m_db = QSqlDatabase::database();
 
-  //  qDebug() << "execSQL, db open" << ok;
+  //  execute the SQL to initialise everything
 
   QSqlQuery query;
   QStringList s = sql.split(";");
   for (int i=0;i < s.size();i++) {
     if ( !s[i].isEmpty()) {
       ok = query.exec(s[i]);
-      //      qDebug() << "sql" << s[i];
-      //      qDebug() << "sqlexec" << ok;
     }
   }
+
+  //  m_db.close();
   return ok;
 }
 bool LaneParser::openDb(const QString & dbname,bool autoCreate) {
   QFile dbfile(dbname);
   bool ok;
-  if (! dbfile.exists() && autoCreate) {
+  //  if (! dbfile.exists() && autoCreate) {
     // execSQL opens the database
-    ok = execSQL(dbname,"./sql/lanedb.sql",true);
-    return ok;
-  }
+  //    ok = execSQL(dbname,"./sql/lanedb.sql",true);
+  //    return ok;
+  //  }
   QSqlDatabase sqldb = QSqlDatabase::addDatabase("QSQLITE");
   sqldb.setDatabaseName(dbname);
   ok = sqldb.open();
   if (ok) {
-    db = QSqlDatabase::database();
-
+    m_db = QSqlDatabase::database();
+    qDebug() << "success,  opened DB " << dbname;
   }
-  qDebug() << Q_FUNC_INFO << "db open" << ok;
+  else {
+    qWarning() << Q_FUNC_INFO << "db open failed" << ok;
+  }
   return ok;
 }
 void LaneParser::traverseXml(QDomNode& node)
@@ -196,7 +222,7 @@ void LaneParser::traverseXml(QDomNode& node)
         domElement = domNode.toElement();
         if   (domElement.tagName() == "entryFree")
           {
-            qDebug() << "Setting currentEntryId";
+            //            qDebug() << "Setting currentEntryId";
             m_currentEntryId = domElement.attribute("id");
           }
       }
@@ -228,7 +254,7 @@ void LaneParser::traverseXml(QDomNode& node)
                     if (! xref.contains(c)) {
                       QStringList * l = new QStringList;
                       l->append(currentId);
-                      qDebug() << "pass" << m_parsePass << "xref insert" << c << "at:" << m_currentEntryId;
+                      //                      qDebug() << "pass" << m_parsePass << "xref insert" << c << "at:" << m_currentEntryId;
                       xref.insert(c,l);
                     }
                     else {
@@ -263,7 +289,7 @@ void LaneParser::traverseXml(QDomNode& node)
                        domElement.attribute("type") == "root")
                 {
                   emit(gotRoot(domElement.attribute("n")));
-                  qDebug() << "Found root" << domElement.attribute("n");
+                  //                  qDebug() << "Found root" << domElement.attribute("n");
                   if (! currentRoot.isEmpty()) {
                     //                  roots.insert(currentRoot,entry);
                     if (nroots.contains(currentRoot))  {
@@ -286,10 +312,7 @@ void LaneParser::traverseXml(QDomNode& node)
                   emit(gotRootNode(domNode));
                   /// create root table entry
                   if (m_parsePass == 2) {
-                    m_sqlLog << QString("insert into root values(%1,\"%2\",\"%3\")\n").arg(m_rootId)
-                      .arg(currentRoot)
-                      .arg(currentLetter);
-                    m_rootId++;
+                    writeRoot(currentRoot,currentLetter,m_updateDb);
                   }
                 }
               else if ((domElement.tagName() == "entryFree") && !  domElement.hasAttributes()) {
@@ -306,7 +329,7 @@ void LaneParser::traverseXml(QDomNode& node)
               }
               else if ((domElement.tagName() == "entryFree") && domElement.hasAttribute("key")) {
                 //          qDebug() << "key" << domElement.attribute("key");
-                qDebug() << ">>>>> processing entryFree node";
+                //                qDebug() << ">>>>> processing entryFree node";
                 QString t;
                 QString key = domElement.attribute("key");
                 QString mapkey = domElement.attribute("id");
@@ -355,18 +378,18 @@ void LaneParser::traverseXml(QDomNode& node)
                     qWarning() << "Nodes has multiple itypes:" << mapkey << itypes.count();
                   }
                   itype =  itypes.at(0).firstChild().nodeValue();
-                  qDebug() << __LINE__ << "node" << mapkey << "itype" << itype << "pass" << m_parsePass;
+                  //                  qDebug() << __LINE__ << "node" << mapkey << "itype" << itype << "pass" << m_parsePass;
 
 
                 }
                 if (m_parsePass == 1) {
-                  qDebug() << "pass" << m_parsePass << "got node" << mapkey << key;
+                  //                  qDebug() << "pass" << m_parsePass << "got node" << mapkey << key;
                   //                  qDebug() << "convert call 3";
                   t = convert(key,4);
                   domElement.setAttribute("key",t);
                 }
                 else {
-                  qDebug() << __LINE__ << "pass" << m_parsePass << "got node" << mapkey << domElement.attribute("key") << "itype" << itype;
+                  //                  qDebug() << __LINE__ << "pass" << m_parsePass << "got node" << mapkey << domElement.attribute("key") << "itype" << itype;
                   currentId = mapkey;
                   ni n;
                   // save the key i.e the actual word n.txt
@@ -377,43 +400,54 @@ void LaneParser::traverseXml(QDomNode& node)
                   n.txt = key;
                   n.letter = currentLetter;
                   n.itype = itype;
-                  qDebug() << "insert entry" << mapkey << n.letter << "text" << n.txt <<"itype" <<  n.itype;
-                  if (nientry->contains(mapkey)) {
-                    qDebug() << "duplicate entry on" << mapkey;
-                  }
+                  //                  qDebug() << "insert entry" << mapkey << n.letter << "text" << n.txt <<"itype" <<  n.itype;
+                  //                  if (nientry->contains(mapkey)) {
+                  //                    qDebug() << "duplicate entry on" << mapkey;
+                  //                  }
                   nientry->insert(mapkey,n);
                   //                entry->insert(mapkey,t);
                   // for each entryFree item emit a signal
                   emit(addedItem(mapkey));
                   emit(gotKeyNode(&domElement));
                   // output itype or entry
+                  bool ok;
+                  itype.toInt(&ok,10);
+                  if (! ok) {
+                    itype.clear();
+                  }
                   if (m_parsePass == 2) {
                     QString sql;
                     if ( itype.isEmpty()) {
+                      writeEntry(mapkey,key,n.xml,m_updateDb);
+                      /*
                       sql = QString("insert into entry values (%1,%2,\"%3\",\"%4\",\"%5\" )\n")
                         .arg(m_entryId)
                         .arg(m_rootId - 1)
                         .arg(mapkey)
                         .arg(key)
-                        .arg(n.xml);
+                        .arg("<XML>");                        //.arg(n.xml);
                       m_entryId++;
+                      */
                     }
                     else {
+                      writeItype(itype,mapkey,key,n.xml,m_updateDb);
+                      /*
                         sql = QString("insert into itype values (%1,%2,%3,\"%4\",\"%5\",\"%6\" )\n")
                           .arg(m_itypeId)
                           .arg(m_rootId - 1)
                           .arg(itype)
                           .arg(mapkey)
                           .arg(key)
-                          .arg(n.xml);
-                        m_itypeId++;
+                          .arg("<XML>");                        //.arg(n.xml);
 
+                        m_itypeId++;
+                      */
                     }
-                    m_sqlLog << sql;
+                    //                    m_sqlLog << sql;
                   }
                 }
-                qDebug() << "forms" << orthforms;
-                qDebug() << ">>>>> end processing entryFree node";
+                //                qDebug() << "forms" << orthforms;
+                //                qDebug() << ">>>>> end processing entryFree node";
               }
             }
         }
@@ -446,10 +480,12 @@ bool LaneParser::updateDb() {
   int total = 0;
 
   updateXref();
+
+  return true;
   QMapIterator<QString, QMap<QString, ni> *> i(nroots);
 
-  qDebug() << "pass" << m_parsePass << "updateDb, checking" << db.isValid() << db.lastError();
-  ok = db.transaction();
+  qDebug() << "pass" << m_parsePass << "updateDb, checking" << m_db.isValid() << m_db.lastError();
+  ok = m_db.transaction();
   query.prepare("INSERT INTO words (root,word,node,xml,sourcefile,html,letter,node_num,type) "
                 "VALUES (:root, :word, :node, :xml, :sourcefile,:html,:letter,:node_num,0)");
   qDebug() << "transaction" << ok;
@@ -499,14 +535,14 @@ bool LaneParser::updateDb() {
         ret = false;
       }
       if (c > 1000) {
-        db.commit();
+        m_db.commit();
         c = 0;
-        db.transaction();
+        m_db.transaction();
       }
     }
   }
   //  if (c > 0) {
-  db.commit();
+  m_db.commit();
   //  }
   qDebug() << "update db done" << currentFile << total;
   return ret;
@@ -515,17 +551,17 @@ void LaneParser::parsingComplete(int pass) {
   if (! currentRoot.isEmpty()) {
     nroots.insert(currentRoot,nientry);
   }
-  if (pass == 1)
-    updateTranslate();
-  if (pass == 2)
-    updateXref();
+  //  if (pass == 1)
+  //    updateTranslate();
+  //  if (pass == 2)
+  //    updateXref();
 }
 bool LaneParser::updateXref() {
   bool ok,ret;
   int c = 0;
   qDebug() << "pass" << m_parsePass << "Xref size:" << xref.size();
   QSqlQuery query;
-  ok = db.transaction();
+  ok = m_db.transaction();
   query.prepare("INSERT INTO xref (word,node,type) "
                 "VALUES (:word,:node,0)");
   QMapIterator<QString, QStringList *> i(xref);
@@ -543,14 +579,14 @@ bool LaneParser::updateXref() {
         ret = false;
       }
       if (c > 1000) {
-        db.commit();
+        m_db.commit();
         c = 0;
-        db.transaction();
+        m_db.transaction();
       }
 
     }
   }
-  db.commit();
+  m_db.commit();
   return ret;
 }
 bool LaneParser::updateTranslate() {
@@ -559,7 +595,7 @@ bool LaneParser::updateTranslate() {
   int c = 0;
   qDebug() << "pass" << m_parsePass << "Updating buckwalter" << buckwalter.size();
   QSqlQuery buck;
-  db.transaction();
+  m_db.transaction();
   buck.prepare("INSERT INTO buck (win,wout,type)"
                "VALUES (:win, :wout,0)");
   QMapIterator<QString,QString> bi(buckwalter);
@@ -575,11 +611,162 @@ bool LaneParser::updateTranslate() {
       ret = false;
     }
     if (c > 1000) {
-      db.commit();
+      m_db.commit();
       c = 0;
-      db.transaction();
+      m_db.transaction();
     }
   }
-  db.commit();
+  m_db.commit();
   return ret;
+}
+void LaneParser::setupSQL() {
+  m_rootId = 0;
+  m_itypeId = 0;
+  m_entryId = 0;
+  m_writeCount = 0;
+  // this needs to come from settings so it can be changed without a recompile
+  bool ok;
+  QSqlQuery r;
+  ok = r.prepare("INSERT INTO root (word,letter)"
+                   "VALUES (:word,:letter)");
+
+  if ( ok ) {
+    m_rootQuery = r;
+  }
+  else {
+    qWarning() << "Error preparing root query" << r.lastError();
+  }
+
+  QSqlQuery t;
+  t.prepare("INSERT INTO itype (itype,rootId,nodeId,word,xml)"
+                       "VALUES (:itype,:rootId,:nodeId,:word,:xml)");
+  if (ok) {
+    m_itypeQuery = t;
+  }
+  else {
+    qWarning() << "Error preparing itype query" << t.lastError();
+  }
+  QSqlQuery e;
+  e.prepare("INSERT INTO entry (rootId,nodeId,word,xml)"
+                       "VALUES (:rootId,:nodeId,:word,:xml)");
+  if (ok) {
+    m_entryQuery = e;
+  }
+  else {
+    qWarning() << "Error preparing entry query" << e.lastError();
+  }
+}
+
+bool LaneParser::writeRoot(const QString & root,const QString & letter,bool update) {
+  bool ret = false;
+
+  m_sqlLog << QString("insert into root values(%1,\"%2\",\"%3\")\n")
+    .arg(m_rootId)
+    .arg(root)
+    .arg(letter);
+  m_rootId++;
+
+  if (! update ) {
+    return true;
+  }
+
+  m_rootQuery.bindValue(":word",root);
+  m_rootQuery.bindValue(":letter",letter);
+  ret = m_rootQuery.exec();
+
+  if (m_writeCount == 0) {
+    m_db.transaction();
+  }
+
+  if (ret)  {
+    m_dbRootId = m_lastId = m_rootQuery.lastInsertId().toInt();
+    m_writeCount++;
+  }
+  else {
+    qWarning() << m_rootQuery.lastError();
+  }
+  if (m_writeCount > 1000) {
+    m_db.commit();
+    m_writeCount = 0;
+  }
+  return ret;
+}
+bool LaneParser::writeItype(const QString & itype,const QString nodeId,const QString & word,const QString & xml,bool update) {
+
+  bool ret = false;
+
+  m_sqlLog << QString("insert into itype values (%1,%2,%3,\"%4\",\"%5\",\"%6\" )\n")
+    .arg(m_itypeId)
+    .arg(itype)
+    .arg(m_rootId - 1)
+    .arg(nodeId)
+    .arg(word)
+    .arg("<XML>");                        //.arg(n.xml);
+
+  m_itypeId++;
+  if (! update ) {
+    return true;
+  }
+  if (m_writeCount == 0) {
+    m_db.transaction();
+  }
+
+  m_itypeQuery.bindValue(":itype",itype);
+  m_itypeQuery.bindValue(":rootId",m_dbRootId);
+  m_itypeQuery.bindValue(":nodeId",nodeId);
+  m_itypeQuery.bindValue(":word",word);
+  m_itypeQuery.bindValue(":xml",xml);
+
+  ret = m_itypeQuery.exec();
+
+  if (ret)  {
+    m_lastId = m_itypeQuery.lastInsertId().toInt();
+    m_writeCount++;
+  }
+  else {
+    qWarning() << m_itypeQuery.lastError();
+  }
+  if (m_writeCount > 1000) {
+    m_db.commit();
+    m_writeCount = 0;
+  }
+  return ret;
+}
+bool LaneParser::writeEntry(const QString & nodeId,const QString & word,const QString xml,bool update)  {
+  bool ret = false;
+  m_sqlLog << QString("insert into entry values (%1,%2,\"%3\",\"%4\",\"%5\" )\n")
+    .arg(m_entryId)
+    .arg(m_rootId - 1)
+    .arg(nodeId)
+    .arg(word)
+    .arg("<XML>");                        //.arg(n.xml);
+  m_entryId++;
+
+  if (! update ) {
+    return true;
+  }
+  if (m_writeCount == 0) {
+    m_db.transaction();
+  }
+  m_entryQuery.bindValue(":rootId",m_dbRootId);
+  m_entryQuery.bindValue(":nodeId",nodeId);
+  m_entryQuery.bindValue(":word",word);
+  m_entryQuery.bindValue(":xml",xml);
+
+  ret = m_entryQuery.exec();
+
+  if (ret)  {
+    m_lastId = m_entryQuery.lastInsertId().toInt();
+    m_writeCount++;
+  }
+  else {
+    qWarning() << m_entryQuery.lastError();
+  }
+  if (m_writeCount > 1000) {
+    m_db.commit();
+    m_writeCount = 0;
+  }
+  return ret;
+
+
 }

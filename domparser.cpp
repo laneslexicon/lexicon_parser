@@ -35,7 +35,7 @@ bool DomParser::parse() {
     text
   */
   m_parsePass++;
-  parseInit(m_parsePass);
+  //  parseInit(m_parsePass);
   loadDOM();
 
 }
