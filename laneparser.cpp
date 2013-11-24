@@ -244,7 +244,7 @@ void LaneParser::traverseXml(QDomNode& node)
                     emit gotTextNode(&domText);
                     QString str  = domText.data();
                     QString c = convert(str,1);
-
+                    domText.setData(c);
 
                     if (! buckwalter.contains(str))
                       buckwalter.insert(str,c); // we are just going to overwrite dups
@@ -254,10 +254,11 @@ void LaneParser::traverseXml(QDomNode& node)
                     if (! currentId.isEmpty()) {
                       writeXref(c,currentId);
                     }
+                    /*
                     if (! xref.contains(c)) {
                       QStringList * l = new QStringList;
                       l->append(currentId);
-                      //                      qDebug() << "pass" << m_parsePass << "xref insert" << c << "at:" << m_currentEntryId;
+
                       xref.insert(c,l);
                       qDebug() << "xref" << c << "node" << currentId;
                     }
@@ -266,7 +267,8 @@ void LaneParser::traverseXml(QDomNode& node)
                       if (! l->contains(currentId))
                         l->append(currentId);
                     }
-                    domText.setData(c);
+                    */
+
 
                     //              domText.setData("xxxxx");
                   }
