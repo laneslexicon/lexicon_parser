@@ -102,8 +102,13 @@ void SqlTask::parseFile() {
     return;
   }
   parser = new LaneParser(dbName);
+
+  parser->setSQL(sqlSource);
+  parser->setInitDb(true);
+
   parser->setXalan(! noTransform );
   parser->setConvertBuckwalter(convert);
+  parser->setUpdateDb(dbUpdate);
   if (parser->readFile(sourceName,false)) {
     parser->parse();
     if (dbUpdate)
