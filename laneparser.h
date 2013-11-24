@@ -65,7 +65,7 @@ class LaneParser : public DomParser {
 
   int m_rootId;
   int m_itypeId;
-  int m_wordId;
+  int m_entryId;
   QMap<QString,QString> buckwalter;
   //  QMap<QString, QMap<QString,QString> *> roots;
   //  QMap<QString,QString> * entry;

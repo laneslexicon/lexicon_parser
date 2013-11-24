@@ -26,7 +26,7 @@ LaneParser::LaneParser(const QString & dbname) : DomParser() {
   }
   m_rootId = 0;
   m_itypeId = 0;
-  m_wordId = 0;
+  m_entryId = 0;
 
 }
 LaneParser::LaneParser() : DomParser()
@@ -57,7 +57,7 @@ LaneParser::LaneParser() : DomParser()
 
   m_rootId = 0;
   m_itypeId = 0;
-  m_wordId = 0;
+  m_entryId = 0;
 
 }
 LaneParser::~LaneParser() {
@@ -80,17 +80,17 @@ void LaneParser::flush() {
 bool LaneParser::parse() {
   qDebug() << Q_FUNC_INFO << m_cb << m_parsePass;
   if (m_cb) {
-  m_parsePass++;
-  parseInit(m_parsePass);
-  loadDOM();  // the first pass do the translate updating DOM in-place
+    m_parsePass++;
+    parseInit(m_parsePass);
+    loadDOM();  // the first pass do the translate updating DOM in-place
 
-  updateXref();
-  updateTranslate();
-  flush();    // reset anything
-  /**
-    re-read the DOM building whatever data structure using the converted
-    text
-  */
+    updateXref();
+    updateTranslate();
+    flush();    // reset anything
+    /**
+       re-read the DOM building whatever data structure using the converted
+       text
+    */
   }
   m_parsePass++;
   parseInit(2);
@@ -195,11 +195,11 @@ void LaneParser::traverseXml(QDomNode& node)
           domNode.isElement()) {
         domElement = domNode.toElement();
         if   (domElement.tagName() == "entryFree")
-        {
-          qDebug() << "Setting currentEntryId";
-          m_currentEntryId = domElement.attribute("id");
-        }
-    }
+          {
+            qDebug() << "Setting currentEntryId";
+            m_currentEntryId = domElement.attribute("id");
+          }
+      }
       if (domNode.isText() && (m_parsePass == 1))
         {
           domText = domNode.toText();
@@ -325,11 +325,11 @@ void LaneParser::traverseXml(QDomNode& node)
                     /**
                      * the xml contains entries like this:
                      <form>
-                        <orth orig="" extent="full" lang="ar">jaAbapN</orth>
-                        <orth extent="full" lang="ar">jAb</orth>
-                        <orth extent="full" lang="ar">jAbh</orth>
-                        <orth extent="full" lang="ar">jAbp</orth>
-                      </form>                     *
+                     <orth orig="" extent="full" lang="ar">jaAbapN</orth>
+                     <orth extent="full" lang="ar">jAb</orth>
+                     <orth extent="full" lang="ar">jAbh</orth>
+                     <orth extent="full" lang="ar">jAbp</orth>
+                     </form>                     *
                      *
                      *
                      * the first entry is in Lane, but I don't know where the others
@@ -356,6 +356,7 @@ void LaneParser::traverseXml(QDomNode& node)
                   }
                   itype =  itypes.at(0).firstChild().nodeValue();
                   qDebug() << __LINE__ << "node" << mapkey << "itype" << itype << "pass" << m_parsePass;
+
 
                 }
                 if (m_parsePass == 1) {
@@ -385,10 +386,34 @@ void LaneParser::traverseXml(QDomNode& node)
                   // for each entryFree item emit a signal
                   emit(addedItem(mapkey));
                   emit(gotKeyNode(&domElement));
+                  // output itype or entry
+                  if (m_parsePass == 2) {
+                    QString sql;
+                    if ( itype.isEmpty()) {
+                      sql = QString("insert into entry values (%1,%2,\"%3\",\"%4\",\"%5\" )\n")
+                        .arg(m_entryId)
+                        .arg(m_rootId - 1)
+                        .arg(mapkey)
+                        .arg(key)
+                        .arg(n.xml);
+                      m_entryId++;
+                    }
+                    else {
+                        sql = QString("insert into itype values (%1,%2,%3,\"%4\",\"%5\",\"%6\" )\n")
+                          .arg(m_itypeId)
+                          .arg(m_rootId - 1)
+                          .arg(itype)
+                          .arg(mapkey)
+                          .arg(key)
+                          .arg(n.xml);
+                        m_itypeId++;
 
+                    }
+                    m_sqlLog << sql;
+                  }
                 }
                 qDebug() << "forms" << orthforms;
-                  qDebug() << ">>>>> end processing entryFree node";
+                qDebug() << ">>>>> end processing entryFree node";
               }
             }
         }
