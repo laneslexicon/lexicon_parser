@@ -59,6 +59,13 @@ class LaneParser : public DomParser {
   QTextStream m_buckLog;
   QFile m_buckLogFile;
   int m_buckErrors;
+
+  QTextStream m_sqlLog;
+  QFile m_SqlLogFile;
+
+  int m_rootId;
+  int m_itypeId;
+  int m_wordId;
   QMap<QString,QString> buckwalter;
   //  QMap<QString, QMap<QString,QString> *> roots;
   //  QMap<QString,QString> * entry;

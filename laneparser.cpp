@@ -18,6 +18,15 @@ LaneParser::LaneParser(const QString & dbname) : DomParser() {
     //    out << "Result: " << qSetFieldWidth(10) << left << 3.14 << 2.7;
     // writes "Result: 3.14      2.7       "
   }
+  m_SqlLogFile.setFileName("sql.log");
+  if (m_SqlLogFile.open(QFile::WriteOnly | QFile::Truncate)) {
+    m_sqlLog.setDevice(&m_SqlLogFile);
+    //    out << "Result: " << qSetFieldWidth(10) << left << 3.14 << 2.7;
+    // writes "Result: 3.14      2.7       "
+  }
+  m_rootId = 0;
+  m_itypeId = 0;
+  m_wordId = 0;
 
 }
 LaneParser::LaneParser() : DomParser()
@@ -39,6 +48,17 @@ LaneParser::LaneParser() : DomParser()
     //    out << "Result: " << qSetFieldWidth(10) << left << 3.14 << 2.7;
     // writes "Result: 3.14      2.7       "
   }
+  m_SqlLogFile.setFileName("sql.log");
+  if (m_SqlLogFile.open(QFile::WriteOnly | QFile::Truncate)) {
+    m_sqlLog.setDevice(&m_SqlLogFile);
+    //    out << "Result: " << qSetFieldWidth(10) << left << 3.14 << 2.7;
+    // writes "Result: 3.14      2.7       "
+  }
+
+  m_rootId = 0;
+  m_itypeId = 0;
+  m_wordId = 0;
+
 }
 LaneParser::~LaneParser() {
   flushRoots();
@@ -46,6 +66,9 @@ LaneParser::~LaneParser() {
   m_buckLog << QString("File %1, errors %2").arg(currentFile).arg(m_buckErrors);
   m_buckLog.flush();
   m_buckLogFile.close();
+
+  m_sqlLog.flush();
+  m_SqlLogFile.close();
 }
 void LaneParser::loadMap(const QString & fileName) {
   QByteArray ba = fileName.toLocal8Bit();
@@ -262,6 +285,12 @@ void LaneParser::traverseXml(QDomNode& node)
                   currentRoot = convert(arroot,3);
                   emit(gotRootNode(domNode));
                   /// create root table entry
+                  if (m_parsePass == 2) {
+                    m_sqlLog << QString("insert into root values(%1,\"%2\",\"%3\")\n").arg(m_rootId)
+                      .arg(currentRoot)
+                      .arg(currentLetter);
+                    m_rootId++;
+                  }
                 }
               else if ((domElement.tagName() == "entryFree") && !  domElement.hasAttributes()) {
                 QString str;
