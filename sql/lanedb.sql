@@ -17,6 +17,28 @@ CREATE INDEX ix_word on words (word ASC);
 CREATE INDEX ix_letter on words (letter ASC);
 CREATE INDEX ix_node on words (node ASC);
 CREATE INDEX ix_node_num on words (node_num ASC);
+
+CREATE TABLE root {
+id integer primary key,
+word text;
+nodeId text
+};
+create TABLE itype {
+id integer primary key,
+itype integer,
+word text,
+rootId integer,
+xml text,
+nodeId text
+};
+create TABLE entry {
+id integer primary key,
+word text,
+rootId integer,
+xml text,
+nodeId text
+};
+
 CREATE TABLE xref (
 id INTEGER primary key,
 word TEXT,
