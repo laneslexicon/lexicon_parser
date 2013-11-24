@@ -20,8 +20,9 @@ CREATE INDEX ix_node_num on words (node_num ASC);
 
 CREATE TABLE root {
 id integer primary key,
-word text;
-nodeId text
+word text,
+nodeId text,
+letter text
 };
 create TABLE itype {
 id integer primary key,
