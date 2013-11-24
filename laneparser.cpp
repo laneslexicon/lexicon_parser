@@ -261,6 +261,7 @@ void LaneParser::traverseXml(QDomNode& node)
                   //                qDebug() << "convert call 2";
                   currentRoot = convert(arroot,3);
                   emit(gotRootNode(domNode));
+                  /// create root table entry
                 }
               else if ((domElement.tagName() == "entryFree") && !  domElement.hasAttributes()) {
                 QString str;
@@ -281,30 +282,44 @@ void LaneParser::traverseXml(QDomNode& node)
                 QString key = domElement.attribute("key");
                 QString mapkey = domElement.attribute("id");
                 QString itype;
-                QDomNode form;
+                // QDomNode form;
                 QStringList orthforms;
-                QDomNodeList forms = domElement.elementsByTagName("form");
-                if (forms.count() == 0) {
-                  qWarning() << "Node has zero forms" << mapkey << forms.count();
-                }
-                else {
-                  if (forms.count() > 1) {
-                  qWarning() << "Node has multiple forms" << mapkey << forms.count();
-                  }
-                  form = forms.at(0);
-                  QDomNodeList f = form.toElement().elementsByTagName("orth");
+                /*
+                  get the immediate form child and iterate through all its
+                  orth elements
+                */
+                QDomElement form = domElement.firstChildElement("form");
+                if (! form.isNull()) {
+                  QDomNodeList f = form.elementsByTagName("orth");
                   for(int i=0;i < f.size();i++) {
                     QDomElement e = f.at(i).toElement();
+                    /**
+                     * the xml contains entries like this:
+                     <form>
+                        <orth orig="" extent="full" lang="ar">jaAbapN</orth>
+                        <orth extent="full" lang="ar">jAb</orth>
+                        <orth extent="full" lang="ar">jAbh</orth>
+                        <orth extent="full" lang="ar">jAbp</orth>
+                      </form>                     *
+                     *
+                     *
+                     * the first entry is in Lane, but I don't know where the others
+                     * have come from
+                     *
+                     */
                     if (! e.isNull() &&
+                        (e.hasAttribute("orig")) &&
+                        (e.attribute("orig") == "") &&   // exclude where orig="full"
                         e.hasAttribute("lang") &&
                         (e.attribute("lang") == "ar"))
                       {
-                        orthforms << e.firstChild().nodeValue();
+                        QString str = e.firstChild().nodeValue();
+                        if (! orthforms.contains(str)) {
+                          orthforms << str;
+                        }
                       }
                   }
                 }
-
-
                 QDomNodeList itypes = domElement.elementsByTagName("itype");
                 if (! itypes.isEmpty()) {
                   if (itypes.count() > 1) {
