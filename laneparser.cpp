@@ -60,6 +60,9 @@ bool LaneParser::parse() {
   m_parsePass++;
   parseInit(m_parsePass);
   loadDOM();  // the first pass do the translate updating DOM in-place
+
+  updateXref();
+  updateTranslate();
   flush();    // reset anything
   /**
     re-read the DOM building whatever data structure using the converted
@@ -89,9 +92,11 @@ QString LaneParser::convert(const QString & text,int callId) {
   if (! ok) {
     m_buckErrors++;
     m_buckLog << QString("conversion error %1 at node: %2\n").arg(callId).arg(m_currentEntryId);
-    m_buckLog << "Source: " << text << "\n";
-    m_buckLog << "At: " << mapper->m_errorIndex << "\n";
-    m_buckLog << "Char: " << mapper->m_errorChar << "\n";
+    m_buckLog << QString("In: [%1], at pos %2,[char= %3]\n").arg(text).arg(mapper->m_errorIndex).arg(mapper->m_errorChar);
+    QString str;
+    QTextStream stream(&str);
+    m_currentNode.toElement().save(stream,4);
+    m_buckLog << str << "\n";
   }
   return t;
 }
@@ -218,6 +223,7 @@ void LaneParser::traverseXml(QDomNode& node)
         }
       else if (domNode.isElement())
         {
+          m_currentNode = domNode;
           domElement = domNode.toElement();
           if(!(domElement.isNull()))
             {
@@ -369,6 +375,8 @@ bool LaneParser::updateDb() {
   QSqlQuery query;
   int c = 0;
   int total = 0;
+
+  updateXref();
   QMapIterator<QString, QMap<QString, ni> *> i(nroots);
 
   qDebug() << "pass" << m_parsePass << "updateDb, checking" << db.isValid() << db.lastError();

@@ -48,6 +48,7 @@ class LaneParser : public DomParser {
  private:
    QString m_teiXSL;
    QString m_currentEntryId;
+   QDomNode m_currentNode;
    bool m_bok;    // whether or not the last call to im_convert_string work
    bool m_cb;     // convert buckwalter
    bool useXalan;
