@@ -34,10 +34,10 @@ nodeId text
 };
 create TABLE entry {
 id integer primary key,
-word text,
 rootId integer,
-xml text,
-nodeId text
+nodeId text,
+word text,
+xml text
 };
 
 CREATE TABLE xref (
