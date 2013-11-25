@@ -116,10 +116,10 @@ void SqlTask::parseFile() {
 
   if (parser->readFile(sourceName,false)) {
     parser->parse();
-    if (updateDb)
-      parser->updateDb();
-    if (dumpRoots)
-      parser->dumpRoots();
+    //    if (updateDb)
+    //      parser->updateDb();
+    //    if (dumpRoots)
+    //      parser->dumpRoots();
   }
   else {
     qDebug() << "Could not read file" << sourceName;
