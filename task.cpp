@@ -94,7 +94,11 @@ void SqlTask::timings() {
 
 }
 void SqlTask::parseFile() {
-  qDebug() << Q_FUNC_INFO << "parsing" << sourceName << "buckwalter convert" << convert;
+  qDebug() << Q_FUNC_INFO;
+  qDebug() << "parsing" << sourceName;
+  qDebug() << "buckwalter convert" << convert;
+  qDebug() << "initdb" << initDb;
+  qDebug() << "updatedb" << updateDb;
   if (sourceName.isEmpty() ||
       dbName.isEmpty()) {
     qDebug() << "Missing params" << sourceName << dbName;
@@ -104,14 +108,15 @@ void SqlTask::parseFile() {
   parser = new LaneParser(dbName);
 
   parser->setSQL(sqlSource);
-  parser->setInitDb(true);
+  parser->setInitDb(initDb);
 
   parser->setXalan(! noTransform );
   parser->setConvertBuckwalter(convert);
-  parser->setUpdateDb(dbUpdate);
+  parser->setUpdateDb(updateDb);
+
   if (parser->readFile(sourceName,false)) {
     parser->parse();
-    if (dbUpdate)
+    if (updateDb)
       parser->updateDb();
     if (dumpRoots)
       parser->dumpRoots();
@@ -121,6 +126,7 @@ void SqlTask::parseFile() {
   }
   delete parser;
   qDebug() << "parsing finished";
+
   emit(finished());
 }
 void SqlTask::execSQL() {
@@ -148,7 +154,7 @@ void SqlTask::parseLane() {
       qDebug() << fi.fileName() << fi.filePath();
       if (parser->readFile(fi.filePath(),false)) {
         parser->parse();
-        if (dbUpdate)
+        if (updateDb)
           parser->updateDb();
     if (dumpRoots)
       parser->dumpRoots();

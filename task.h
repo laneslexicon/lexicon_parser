@@ -34,9 +34,11 @@ public:
   QString sourceName;
   QString dbName;
   QString sqlSource;
-  bool dbUpdate;
+
   bool noTransform;
   bool dumpRoots;
+  bool initDb;
+  bool updateDb;
   bool convert;     // convert buckwalter to arabic
 public slots:
   void run();

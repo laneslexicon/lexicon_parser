@@ -46,7 +46,9 @@ int main(int argc, char *argv[])
   bool doAll = false;
   bool doLaneVolume = false;
   bool doBuckwalter = false;
+  bool initDb = false;
   int ix;
+  optmap.insert("-init-db",0);
   optmap.insert("-d",1);
   optmap.insert("-s",1);
   optmap.insert("-db",1);
@@ -71,6 +73,9 @@ int main(int argc, char *argv[])
       QStringList optargs;
       for(int i=0;i < argcount;i++) {
         optargs << cmdargs.takeFirst();
+      }
+      if (opt == "-init-db") {
+        initDb = true;
       }
       if (opt == "-b") {
         doBuckwalter = true;
@@ -121,7 +126,8 @@ int main(int argc, char *argv[])
       }
     }
   }
-  task.dbUpdate = ! noDbUpdate;
+  task.initDb = initDb;
+  task.updateDb = ! noDbUpdate;
   task.noTransform = noTransform;
   task.dumpRoots = dumpRoots;
   task.convert = doBuckwalter;
