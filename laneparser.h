@@ -3,6 +3,7 @@
 #include "domparser.h"
 #include "inputmapper.h"
 #include "lanesettings.h"
+#include <QDateTime>
 #include <QMap>
 #include <QSqlDatabase>
 #include <QSqlQuery>
@@ -91,6 +92,7 @@ class LaneParser : public DomParser {
   QSqlQuery m_xrefQuery;
 
   void setupSQL();
+  void openLogs();
   bool writeXref(const QString & word,const QString & node,bool update=true);
   bool writeRoot(const QString & root,const QString & letter,bool update=true);
   bool writeItype(const QString & itype,const QString nodeId,const QString & word,const QString & xml,bool update=true);

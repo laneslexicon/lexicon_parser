@@ -13,18 +13,7 @@ LaneParser::LaneParser(const QString & dbname) : DomParser() {
   m_xalan = getXalan();
   useXalan = true;
   m_buckErrors = 0;
-  m_buckLogFile.setFileName("conversion.log");
-  if (m_buckLogFile.open(QFile::WriteOnly | QFile::Truncate)) {
-    m_buckLog.setDevice(&m_buckLogFile);
-    //    out << "Result: " << qSetFieldWidth(10) << left << 3.14 << 2.7;
-    // writes "Result: 3.14      2.7       "
-  }
-  m_SqlLogFile.setFileName("sql.log");
-  if (m_SqlLogFile.open(QFile::WriteOnly | QFile::Truncate)) {
-    m_sqlLog.setDevice(&m_SqlLogFile);
-    //    out << "Result: " << qSetFieldWidth(10) << left << 3.14 << 2.7;
-    // writes "Result: 3.14      2.7       "
-  }
+  openLogs();
 }
 
 LaneParser::LaneParser() : DomParser()
@@ -43,18 +32,7 @@ LaneParser::LaneParser() : DomParser()
   m_xalan = getXalan();
   useXalan = true;
   m_buckErrors = 0;
-  m_buckLogFile.setFileName("conversion.log");
-  if (m_buckLogFile.open(QFile::WriteOnly | QFile::Truncate)) {
-    m_buckLog.setDevice(&m_buckLogFile);
-    //    out << "Result: " << qSetFieldWidth(10) << left << 3.14 << 2.7;
-    // writes "Result: 3.14      2.7       "
-  }
-  m_SqlLogFile.setFileName("sql.log");
-  if (m_SqlLogFile.open(QFile::WriteOnly | QFile::Truncate)) {
-    m_sqlLog.setDevice(&m_SqlLogFile);
-    //    out << "Result: " << qSetFieldWidth(10) << left << 3.14 << 2.7;
-    // writes "Result: 3.14      2.7       "
-  }
+  openLogs();
 }
 LaneParser::~LaneParser() {
   flushRoots();
@@ -68,6 +46,21 @@ LaneParser::~LaneParser() {
   if (m_writeCount > 0) {
     m_db.commit();
     m_writeCount = 0;
+  }
+}
+void LaneParser::openLogs() {
+  m_buckLogFile.setFileName("conversion.log");
+  if (m_buckLogFile.open(QFile::WriteOnly | QFile::Append)) {
+    m_buckLog.setDevice(&m_buckLogFile);
+    m_buckLog << "Init" << QDateTime::currentDateTime().toString();
+  }
+  m_SqlLogFile.setFileName("sql.log");
+  if (m_SqlLogFile.open(QFile::WriteOnly | QFile::Append)) {
+    m_sqlLog.setDevice(&m_SqlLogFile);
+    m_sqlLog << "Init" << QDateTime::currentDateTime().toString();
+
+    //    out << "Result: " << qSetFieldWidth(10) << left << 3.14 << 2.7;
+    // writes "Result: 3.14      2.7       "
   }
 }
 void LaneParser::loadMap(const QString & fileName) {
@@ -129,12 +122,18 @@ QString LaneParser::convert(const QString & text,int callId) {
   m_bok = ok;
   if (! ok) {
     m_buckErrors++;
-    m_buckLog << QString("conversion error %1 at node: %2\n").arg(callId).arg(m_currentEntryId);
-    m_buckLog << QString("In: [%1], at pos %2,[char= %3]\n").arg(text).arg(mapper->m_errorIndex).arg(mapper->m_errorChar);
+    m_buckLog << QString("%1 Error %2 node: %3\n").arg(currentFile).arg(callId).arg(m_currentEntryId);
+    m_buckLog << QString("In: [%1]\n").arg(text);
+    for(int i=0;i < mapper->m_errorIndex.size();i++) {
+      m_buckLog << QString("%1 : %2\n").arg(mapper->m_errorIndex[i]).arg(mapper->m_errorChar.at(i));
+    }
+
     QString str;
     QTextStream stream(&str);
+    stream << ">>> XML\n";
     m_currentNode.toElement().save(stream,4);
-    m_buckLog << str << "\n";
+    stream << "\n<<< XML\n";
+    m_buckLog << str;
   }
   return t;
 }
