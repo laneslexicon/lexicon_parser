@@ -721,6 +721,9 @@ bool im_match_diacritics(KeyEntry * k,QStringList & d) {
 }
 QString im_convert_string(InputMapper * im,const QString & mapping,const QString & source, bool * ok) {
   QString retval;
+  im->m_errorSource = QString();
+  im->m_errorChar.clear();
+  im->m_errorIndex.clear();
 //  qDebug() <<  mapping << source;
   QString mname(mapping);
   KeyMap * map = im_get_map(im,mname);
@@ -728,26 +731,23 @@ QString im_convert_string(InputMapper * im,const QString & mapping,const QString
  //   qDebug() << "map not found";
     return retval;
   }
+  bool convError = false;
   QList<int>  ustr;
   int pc;
   pc = -1;
   for (int i=0;i < source.length();i++) {
     QChar c = source.at(i);
     im_char * cc = im_convert(im,mapping,c.unicode(),pc);
-    if (ok != 0) {
-      if ((! cc->processed ) &&
-          (c != ' '))
-        { // indicates possible incorrect char
-          //        qDebug() << "convert error" << source << "at" << c;
+    if ((! cc->processed ) &&
+        (c != ' '))
+      { // indicates possible incorrect char
+        //        qDebug() << "convert error" << source << "at" << c;
         im->m_errorSource = source;
-        im->m_errorIndex = i;
-        im->m_errorChar = c;
-        *ok = false;
+        im->m_errorIndex << i;
+        im->m_errorChar << c;
+        convError = true;
       }
-      else {
-        *ok = true;
-      }
-    }
+
     if (cc->consume) {
       ustr.removeLast();
     }
@@ -757,6 +757,9 @@ QString im_convert_string(InputMapper * im,const QString & mapping,const QString
   }
   for(int i=0;i < ustr.size();i++) {
     retval.append(ustr[i]);
+  }
+  if (ok != NULL) {
+    *ok = ! convError;
   }
   return retval;
 }
