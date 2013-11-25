@@ -11,6 +11,7 @@
 #include <QSqlDriver>
 #include <QRegExp>
 #include <QTextStream>
+#include <QFileInfo>
 #include <sstream>
 #include "xsltsupport.h"
 typedef struct {

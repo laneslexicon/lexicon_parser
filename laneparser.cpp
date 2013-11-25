@@ -13,7 +13,6 @@ LaneParser::LaneParser(const QString & dbname) : DomParser() {
   m_xalan = getXalan();
   useXalan = true;
   m_buckErrors = 0;
-  openLogs();
 }
 
 LaneParser::LaneParser() : DomParser()
@@ -32,7 +31,6 @@ LaneParser::LaneParser() : DomParser()
   m_xalan = getXalan();
   useXalan = true;
   m_buckErrors = 0;
-  openLogs();
 }
 LaneParser::~LaneParser() {
   flushRoots();
@@ -49,18 +47,30 @@ LaneParser::~LaneParser() {
   }
 }
 void LaneParser::openLogs() {
-  m_buckLogFile.setFileName("conversion.log");
+  QFileInfo fi(currentFile);
+  QString s = fi.baseName();
+  if (s.isEmpty()) {
+    s = "xxx";
+  }
+
+    m_buckLogFile.setFileName(QString("conversion_%1.log").arg(s));
   if (m_buckLogFile.open(QFile::WriteOnly | QFile::Append)) {
     m_buckLog.setDevice(&m_buckLogFile);
     m_buckLog << "Init" << QDateTime::currentDateTime().toString();
   }
-  m_SqlLogFile.setFileName("sql.log");
+  else {
+    qWarning() << "Error opening buckwalter conversion log" << qPrintable(m_buckLogFile.errorString());
+  }
+  m_SqlLogFile.setFileName(QString("sql_%1.log").arg(s));
   if (m_SqlLogFile.open(QFile::WriteOnly | QFile::Append)) {
     m_sqlLog.setDevice(&m_SqlLogFile);
     m_sqlLog << "Init" << QDateTime::currentDateTime().toString();
 
     //    out << "Result: " << qSetFieldWidth(10) << left << 3.14 << 2.7;
     // writes "Result: 3.14      2.7       "
+  }
+  else {
+    qWarning() << "Error opening sql log" << qPrintable(m_SqlLogFile.errorString());
   }
 }
 void LaneParser::loadMap(const QString & fileName) {
@@ -72,6 +82,7 @@ void LaneParser::flush() {
 }
 bool LaneParser::parse() {
   bool ok;
+  openLogs();
   qDebug() << Q_FUNC_INFO;
   qDebug() << "DB" << m_dbName;
   qDebug() << "SQL" << m_sqlSource;
