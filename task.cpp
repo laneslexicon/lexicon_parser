@@ -143,25 +143,16 @@ void SqlTask::execSQL() {
 void SqlTask::parseLane() {
   qDebug() << Q_FUNC_INFO << dirName << dbName;
   QDirIterator it(dirName, QDirIterator::Subdirectories);
-  parser = new LaneParser(dbName);
-  parser->setXalan(! noTransform );
-  parser->setConvertBuckwalter(convert);
   while (it.hasNext()) {
     it.next();
     qDebug() << it.filePath() << it.fileName();
     QFileInfo fi = it.fileInfo();
     if (fi.isFile()) {
-      qDebug() << fi.fileName() << fi.filePath();
-      if (parser->readFile(fi.filePath(),false)) {
-        parser->parse();
-        if (updateDb)
-          parser->updateDb();
-    if (dumpRoots)
-      parser->dumpRoots();
-      }
+      qDebug() << "parsing" << fi.fileName() << fi.filePath();
+      sourceName = fi.filePath();
+      parseFile();
     }
   }
-  delete parser;
   emit(finished());
 }
 void SqlTask::run() {

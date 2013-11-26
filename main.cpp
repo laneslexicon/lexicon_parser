@@ -44,6 +44,7 @@ int main(int argc, char *argv[])
   bool noTransform = false;
   bool dumpRoots = false;
   bool doAll = false;
+  bool doLexicon = false;
   bool doLaneVolume = false;
   bool doBuckwalter = false;
   bool initDb = false;
@@ -62,6 +63,7 @@ int main(int argc, char *argv[])
   optmap.insert("-dump",0);
   optmap.insert("-salmone",0);
   optmap.insert("-lane",0);
+  optmap.insert("-lexicon",1);
   optmap.insert("-vol",1);
   optmap.insert("-quran",0);
   optmap.insert("-b",0);
@@ -83,6 +85,11 @@ int main(int argc, char *argv[])
       if (opt == "-d") {
         qDebug() << "directory" << optargs[0];
         task.dirName = optargs[0];
+      }
+      if (opt == "-lexicon") {
+        qDebug() << "directory" << optargs[0];
+        task.dirName = optargs[0];
+        doLexicon = true;
       }
       if (opt == "-s") {
         qDebug() << "source" << optargs[0];
@@ -131,7 +138,7 @@ int main(int argc, char *argv[])
   task.noTransform = noTransform;
   task.dumpRoots = dumpRoots;
   task.convert = doBuckwalter;
-  if (doAll)
+  if (doLexicon)
     QTimer::singleShot(0, &task, SLOT(parseLane()));
   else if (doLaneVolume)
       QTimer::singleShot(0, &task, SLOT(parseFile()));
