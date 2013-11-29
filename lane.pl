@@ -31,8 +31,9 @@ my $skipConvert = 0;
 my $debug = 0;
 my $dbname = "test.sqlite";
 my $overwrite = 0;
-
+my $dryRun = 0;
 GetOptions (
+            "dry-run"   => \$dryRun,
             "overwrite" => \$overwrite,
             "no-convert" =>  \$skipConvert, # do not convert nodes with lang="ar"
             "verbose" => \$verbose,
@@ -64,9 +65,12 @@ my $genWarning = 0;
 my $elapsedTime = 0;
 #
 #
-my $dbh;
+my $dbh = 0;
 my $writeCount = 0;
 my $dbupdate = 1;        # set to 0 to prevent db writes
+my $dbErrorCount = 0;
+my $xrefsth;
+my $entrysth;
 #
 
 my $currentNodeId;
@@ -75,6 +79,10 @@ my $currentWord;
 my $currentItype;
 my @currentForms;
 my @currentStatus;
+################################################################
+#
+#
+################################################################
 sub writelog {
   my $h = shift;
   my $t = shift;
@@ -83,9 +91,9 @@ sub writelog {
   print $h "$t\n";
 
 }
-#
+################################################################
 #  buckwalter conversion
-#
+################################################################
 sub convertString {
   my $t = shift;
   my $s = $t;
@@ -121,6 +129,10 @@ sub createId {
   $entryFreeWithoutId++;
   return sprintf "m%04d",$entryFreeWithoutId;
 }
+################################################################
+#
+#
+################################################################
 sub processForm {
   my $formNode = shift;
   my $name;
@@ -200,6 +212,10 @@ sub processForm {
   }
   return;
 }
+################################################################
+#
+#
+################################################################
 
 sub processNode {
   my $node = shift;
@@ -211,6 +227,10 @@ sub processNode {
   }
 
 }
+################################################################
+#
+#
+################################################################
 
 sub traverseNode {
   my $node = shift;
@@ -225,10 +245,38 @@ sub traverseNode {
     $node = $node->getNextSibling;
   }
 }
+################################################################
 #
-# these two subroutines traverse the node converting all text nodes whose parent
-# has lang="ar"
 #
+################################################################
+sub writeXref {
+  my $word = shift;
+  my $node = shift;
+
+  $debug && print STDERR "XREF write: [$word][$node]\n";
+
+  if ($dryRun) {
+    $xrefDbCount++;
+    return;
+  }
+  $xrefsth->bind_param(1,$word);
+  $xrefsth->bind_param(2,$node);
+  if ($xrefsth->execute()) {
+    $xrefDbCount++;
+    $writeCount++;
+  }
+  else {
+    $dbErrorCount++;
+  }
+  if ($writeCount > $commitCount) {
+    $dbh->commit();
+  }
+}
+################################################################
+# these two subroutines traverse the node converting all text
+# nodes whose parent has lang="ar"
+#
+################################################################
 sub convertNode {
   my $node = shift;
   my $nodeName;
@@ -246,7 +294,7 @@ sub convertNode {
         #
         # write xref record using: $currentWord,$currentNodeId,$text,$str
         #
-        $xrefDbCount++;
+        writeXref($str,$currentNodeId);
       }
     } else {
       print STDERR "Parse warning 2: node <$nodeName> has lang=ar but no text\n";
@@ -254,6 +302,10 @@ sub convertNode {
     }
   }
 }
+################################################################
+#
+#
+################################################################
 sub traverseAndConvertNode {
   my $node = shift;
 
@@ -267,7 +319,10 @@ sub traverseAndConvertNode {
     $node = $node->getNextSibling;
   }
 }
-
+################################################################
+#
+#
+################################################################
 sub processRoot {
   my $node = shift;
   my $entries = $node->getElementsByTagName("entryFree");
@@ -392,8 +447,11 @@ sub processRoot {
       }
     }
   }
-
 }
+################################################################
+#
+#
+################################################################
 sub parseFile {
   my $fileName = shift;
   my $start = time();
@@ -447,8 +505,15 @@ sub parseFile {
   print STDERR sprintf "Root count              : %d\n",$rootDbCount;
   print STDERR sprintf "Entry count             : %d\n",$entryDbCount;
   print STDERR sprintf "Elapse time             : %.2f\n", $elapsedTime;
-}
 
+  if ( ! $dryRun ) {
+    $dbh->commit();
+  }
+}
+################################################################
+#
+#
+################################################################
 sub parseDirectory {
   my $d = shift;
 
@@ -499,6 +564,10 @@ sub parseDirectory {
     print STDERR "File::Find error opening directory:[$d]\n";
   }
 }
+################################################################
+#
+#
+################################################################
 sub getSQL {
   return <<EOF;
 PRAGMA foreign_keys=OFF;
@@ -536,6 +605,37 @@ type INTEGER
 COMMIT;
 EOF
 }
+################################################################
+#
+#
+################################################################
+sub openDb {
+  my $db = shift;
+
+  my $sth;
+  ### Attributes to pass to DBI->connect(  )
+  my %attr = (
+              PrintError => 1,
+              RaiseError => 0
+             );
+
+  eval {
+    $dbh = DBI->connect("dbi:SQLite:$db","","",\%attr) or die "couldn’t connect to db" . DBI->errstr;
+  };
+  if ($@) {
+    print STDERR "Error opening db:$@\n";
+    exit 1;
+  }
+  else {
+    $verbose && print STDERR "Opened db $db\n";
+  }
+  $dbh->{AutoCommit} => 1;
+  $dbh->begin_work;
+}
+################################################################
+#
+#
+################################################################
 sub initialiseDb {
   my $db = shift;
   my $sql = shift;
@@ -570,6 +670,7 @@ sub initialiseDb {
  if ($ok) {
    print STDOUT "DB initialised OK\n";
  }
+  $dbh->disconnect;
 }
 #############################################################
 #
@@ -598,6 +699,11 @@ if ($initdb) {
       exit 1;
   }
   initialiseDb($dbname,$sql);
+
+}
+if (! $dryRun ) {
+   openDb($dbname);
+   $xrefsth = $dbh->prepare("insert into xref (word,node) values (?,?)");
 }
 if ($xmlFile) {
   if ( ! -e $xmlFile) {
@@ -614,7 +720,7 @@ elsif ($parseDir ) {
   parseDirectory($parseDir);
 }
 else {
-#  parseFile("./test/test_j0.xml");
+  parseFile("./test/test_j0.xml");
 }
 #convertString("ja Oxdr sthwmn");
 
