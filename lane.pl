@@ -8,6 +8,7 @@ use DBI;
 use File::Find;
 use Data::Dumper;
 use Getopt::Long;
+use Time::HiRes qw( time );
 
 my $onceOnly = 0;
 my $missingIdCount = 0;
@@ -26,17 +27,22 @@ my $parseDir = "";
 my $dbName = "";
 my $commitCount = 1000;
 my $sqlSource = "";
-my $skipConvertBuckwalter = 0;
+my $skipConvert = 0;
 my $debug = 0;
+my $dbname = "test.sqlite";
+my $overwrite = 0;
+
 GetOptions (
-            "no-convert" =>  \$skipConvertBuckwalter, # do not convert nodes with lang="ar"
+            "overwrite" => \$overwrite,
+            "no-convert" =>  \$skipConvert, # do not convert nodes with lang="ar"
             "verbose" => \$verbose,
             "debug" => \$debug,
             "commit=i" => \$commitCount, # db.commit after write count
             "xml=s" => \$xmlFile,        # file to parse
             "dir=s" => \$parseDir, # directory with xml files to be parsed
             "initdb" => \$initdb,  # delete existing records
-            "sql=s"  => \$sqlSource # SQL used to init db
+            "sql=s"  => \$sqlSource, # SQL used to init db
+            "db=s" => \$dbname
            )
   or die("Error in command line arguments\n");
 
@@ -48,18 +54,27 @@ my $formWithAttributes = 0;
 my $entryFreeWithoutKey = 0;
 my $entryFreeWithoutId = 0;
 my $orthPromotion=0;
+my $orthDrop = 0;
 my $itypePromotion=0;
 my $skipRootCount = 0;
+my $xrefDbCount = 0;
+my $entryDbCount = 0;
+my $rootDbCount = 0;
+my $genWarning = 0;
+my $elapsedTime = 0;
 #
 #
+my $dbh;
 my $writeCount = 0;
-
+my $dbupdate = 1;        # set to 0 to prevent db writes
+#
 
 my $currentNodeId;
 my $currentRoot;
 my $currentWord;
 my $currentItype;
 my @currentForms;
+my @currentStatus;
 sub writelog {
   my $h = shift;
   my $t = shift;
@@ -75,7 +90,7 @@ sub convertString {
   my $t = shift;
   my $s = $t;
 
-  return $t unless ! $skipConvertBuckwalter;
+  return $t unless ! $skipConvert;
   my $c = 0;
   $c += ($t =~ tr/'|OWI}A/\x{621}\x{622}\x{623}\x{624}\x{625}\x{626}\x{627}/);
   $c += ($t =~ tr/bptvjHx/\x{628}\x{629}\x{62a}\x{62b}\x{62c}\x{62d}\x{62e}/);
@@ -114,7 +129,7 @@ sub processForm {
   my $attrs = $formNode->getAttributes;
   if ($attrs->getLength > 0) {
     if ($debug) {
-      print STDERR "Warning node $currentNodeId, <form> with attibutes:\n";
+      print STDERR "Node $currentNodeId, <form> with attibutes:\n";
       print STDERR ">>>\n" . $formNode->toString . "\n<<<\n";
     }
     $formWithAttributes++;
@@ -146,18 +161,29 @@ sub processForm {
           my $textNode = $child->getFirstChild;
           if ($textNode->getNodeType == TEXT_NODE) {
             my $t = $textNode->getNodeValue;
+#            print STDERR "Checking orth/itype ---->[$currentWord][$currentItype][$t]\n";
             if ($t) {
-              if (! $currentWord && $currentItype && $currentItype =~ /\d+/) {
+              # this seems to be where key is the same as the numeric itype value
+              if (
+                   (! $currentWord || ($currentWord =~ /^\s*\d+\s*$/)) &&
+                      ($currentItype =~ /^\d+$/))
+                {
                 $currentWord = $t;
                 $debug && print STDERR ">>> node $currentNodeId: first <orth> promoted to <itype> currentWord : $t\n";
                 $itypePromotion++;
+                $currentStatus[3] = "i";
               }
-              if (! $currentWord ) {
+              elsif (! $currentWord ) {
                 $currentWord = $t;
                 $debug && print STDERR ">>> node $currentNodeId: first <orth> promoted to currentWord : $t\n";
                 $orthPromotion++;
+                $currentStatus[4] = "o";
               }
-              if (($t ne "*") &&
+              elsif ($t =~ /^\d+$/) {
+                $orthDrop++;
+                $currentStatus[6] = "d";
+              }
+              elsif (($t ne "*") &&
                   ( $t ne $currentRoot ) &&
                   ( $t ne $currentWord )) {
                 push @currentForms, $t;
@@ -165,7 +191,8 @@ sub processForm {
             }
           }
         } else {
-          print STDERR "Warning <orth> without child nodes\n";
+          print STDERR "Parse warning 1: <orth> without child nodes\n";
+          $genWarning++;
         }
       }
     }
@@ -173,24 +200,12 @@ sub processForm {
   }
   return;
 }
+
 sub processNode {
   my $node = shift;
   my $nodeName;
 
   $nodeName =  $node->getNodeName;
-  #  print "$nodeName\n";
-  my $attr = $node->getAttributeNode("lang");
-  if ($attr && ($attr->getValue eq "ar")) {
-    if ($node->hasChildNodes) {
-      my $textNode = $node->getFirstChild;
-      if ($textNode->getNodeType == TEXT_NODE) {
-        my $text = $textNode->getNodeValue;
-        $textNode->setNodeValue(convertString($text));
-      }
-    } else {
-      print STDERR "Warning node <$nodeName> has lang=ar but no text\n";
-    }
-  }
   if ($nodeName eq "form") {
     processForm($node);
   }
@@ -210,6 +225,48 @@ sub traverseNode {
     $node = $node->getNextSibling;
   }
 }
+#
+# these two subroutines traverse the node converting all text nodes whose parent
+# has lang="ar"
+#
+sub convertNode {
+  my $node = shift;
+  my $nodeName;
+
+  $nodeName =  $node->getNodeName;
+  #  print "$nodeName\n";
+  my $attr = $node->getAttributeNode("lang");
+  if ($attr && ($attr->getValue eq "ar")) {
+    if ($node->hasChildNodes) {
+      my $textNode = $node->getFirstChild;
+      if ($textNode->getNodeType == TEXT_NODE) {
+        my $text = $textNode->getNodeValue;
+        my $str = convertString($text);
+        $textNode->setNodeValue($str);
+        #
+        # write xref record using: $currentWord,$currentNodeId,$text,$str
+        #
+        $xrefDbCount++;
+      }
+    } else {
+      print STDERR "Parse warning 2: node <$nodeName> has lang=ar but no text\n";
+      $genWarning++;
+    }
+  }
+}
+sub traverseAndConvertNode {
+  my $node = shift;
+
+  while ($node) {
+    if ($node->getNodeType == ELEMENT_NODE) {
+      convertNode($node);
+    }
+    if ($node->hasChildNodes) {
+      traverseAndConvertNode($node->getFirstChild);
+    }
+    $node = $node->getNextSibling;
+  }
+}
 
 sub processRoot {
   my $node = shift;
@@ -219,7 +276,14 @@ sub processRoot {
   my $keyAttr;
   my $key;
   my $skipRoot;
-  print STDERR "Root: $currentRoot, entryFree count: $entryCount\n";
+  print STDERR sprintf "[Root=%s][Entries=%d]\n",$currentRoot,$entryCount;
+
+  #
+  # write root record ?
+  #
+  if ($entryCount > 0) {
+    $rootDbCount++;
+  }
   for (my $i=0;$i < $entryCount;$i++) {
     my $entry = $entries->item($i);
     #    print sprintf "Processing entryFree %d [ %s  ]\n",$i,$entry->getNodeName;
@@ -232,6 +296,10 @@ sub processRoot {
     $currentNodeId = "";
     $currentItype = "";
     $#currentForms = -1;
+    $#currentStatus = -1;
+    for(my $j=0;$j < 7;$j++) {
+      push @currentStatus,"-";
+    }
     my $textNode = $entry->getFirstChild;
     if ($textNode->getNodeType == TEXT_NODE) {
       my $text = $textNode->getNodeValue;
@@ -249,6 +317,7 @@ sub processRoot {
         $verbose && print STDERR "Node has no ID:" . $entry->toString . "\n";
         $id = createId();
         $entry->setAttribute("id",$id);
+        $currentStatus[0] = "m";
       }
       $keyAttr = $entry->getAttributeNode("key");
       if ($keyAttr) {
@@ -256,11 +325,9 @@ sub processRoot {
         if (! $key ) {
           $verbose && print STDERR "Node has no key:" . $entry->toString . "\n";
           $entryFreeWithoutKey++;
-
-        } elsif ($key =~ /^\d+$/) {
-          print STDERR "Node $id with numeric key";
+          $currentStatus[1] = "k";
         } else {
-          $currentWord = convertString($key);
+          $currentWord = $key;
         }
       }
       if ($id ) {
@@ -270,39 +337,67 @@ sub processRoot {
         if ($currentWord =~ /3/) {
           my $t = $currentWord;
           $currentWord =~ tr/3/h/;
+          $currentStatus[2] = "s";
           $verbose && print STDERR "At node $currentNodeId: change $t -> $currentWord\n";
         } elsif ($currentWord =~ /\d/) {
           $numeric = "n";
+          $currentStatus[5] = "n";
         }
         $entry->setAttribute("key",$currentWord);
+        my $status = join "",@currentStatus; #$numeric,
         print STDERR sprintf "[%03d][%s]>>> %5s%7s %-30s%-5s %s\n",
           $i,
-          $numeric,
+          $status,
           $currentRoot,
           $currentNodeId,
           $currentWord,
           $currentItype,
           join ",", @currentForms;
         if ($currentNodeId && $currentWord) {
+          #
+          #  We can now update the database but first convert any buckwalter transliteration
+          #
+          #  not efficient as we have already traversed the node but want to separate
+          #  out the buckwalter conversion by cloning the node so that we can write out the
+          #  XML that has been 'fixed' and use it to generate any diff's from the original.
+          #
+          my $xml;
+          if (! $skipConvert ) {
+            my $clone = $entry->cloneNode(1);
+            if ($clone->getNodeType == ELEMENT_NODE) {
+              traverseAndConvertNode($clone);
+              $clone->setAttribute("key",convertString($currentWord));
+              $xml =  $clone->toString;
+            }
+            else {
+              print STDERR "Error cloning node for transliteration:$currentNodeId,$currentWord";
+            }
+            if (! $xml ) {
+              $xml = $entry->toString;
+            }
+          }
+          $entryDbCount++;
+          #
           # update db
+          #
         }
-      } else {
-        print STDERR sprintf "[%03d]<<< %5s%7s %-30s%-5s %s\n",
-          $i,
-          $currentRoot,
-          $currentNodeId,
-          $currentWord,
-          $currentItype,
-          join ",", @currentForms;
+        else {
+          print STDERR "Parse warning 3: No node or word\n";
+          $genWarning++;
+        }
+      }
+      else {
+        print STDERR "Parse warning 4: No ID field\n";
+        $genWarning++;
       }
     }
   }
 
 }
 sub parseFile {
-
   my $fileName = shift;
-
+  my $start = time();
+  print STDERR "Parsing file: $fileName\n";
   my $parser = new XML::DOM::Parser;
   my $doc = $parser->parsefile ($fileName);
 
@@ -339,41 +434,171 @@ sub parseFile {
   close OUT;
 
   $doc->dispose;
-
-
+  my $end = time();
+  $elapsedTime = $end - $start;
   print STDERR sprintf "Skip root count         : %d\n",$skipRootCount;
   print STDERR sprintf "<entryFree> without key : %d\n",$entryFreeWithoutKey;
   print STDERR sprintf "<entryFree> without id  : %d\n",$entryFreeWithoutId;
   print STDERR sprintf "Itype promotion         : %d\n",$itypePromotion;
   print STDERR sprintf "Orth promotion          : %d\n",$orthPromotion;
-
+  print STDERR sprintf "Orth drop               : %d\n",$orthDrop;
+  print STDERR sprintf "General warning         : %d\n",$genWarning;
+  print STDERR sprintf "Xref count              : %d\n",$xrefDbCount;
+  print STDERR sprintf "Root count              : %d\n",$rootDbCount;
+  print STDERR sprintf "Entry count             : %d\n",$entryDbCount;
+  print STDERR sprintf "Elapse time             : %.2f\n", $elapsedTime;
 }
+
 sub parseDirectory {
   my $d = shift;
 
   if (! -d $d ) {
-    print STDERR "No such directory:$d\n";
+    print STDERR "No such directory:[$d]\n";
     return;
 
   }
+  my @totals;
+
   eval {
     my @arr;
-    find sub { if ((-f $_) && ($File::Find::name =~ /xml$/))
-                 {
-                   push @arr,$File::Find::name;
-                 }
-             }, $d;
+    find sub { if ((-f $_) && ($File::Find::name =~ /xml$/))  {  push @arr,$File::Find::name; } }, $d;
     foreach my $file (@arr) {
-      print "$file\n";
+      $formWithAttributes = 0;
+      $entryFreeWithoutKey = 0;
+      $entryFreeWithoutId = 0;
+      $orthPromotion=0;
+      $orthDrop = 0;
+      $itypePromotion=0;
+      $skipRootCount = 0;
+      $xrefDbCount = 0;
+      $entryDbCount = 0;
+      $rootDbCount = 0;
+      $genWarning = 0;
+
+      parseFile($file);
+
+      push @totals, {
+                     "File" => $file,
+                     "Skip root count" => $skipRootCount,
+                     "<entryFree> without key" => $entryFreeWithoutKey,
+                     "<entryFree> without id" => $entryFreeWithoutId,
+                     "Itype promotion" => $itypePromotion,
+                     "Orth promotion" => $orthPromotion,
+                     "Orth drop" => $orthDrop,
+                     "General warning" => $genWarning,
+                     "Xref count" => $xrefDbCount,
+                     "Root count" => $rootDbCount,
+                     "Entry count" => $entryDbCount,
+                     "Elapse time" => $elapsedTime
+                    }
     }
 
   };
-  if ($@) {
-    print STDERR "Error opening directory $d\n";
 
+  if ($@) {
+    print STDERR "File::Find error opening directory:[$d]\n";
   }
 }
+sub getSQL {
+  return <<EOF;
+PRAGMA foreign_keys=OFF;
+BEGIN TRANSACTION;
+CREATE TABLE root (
+id integer primary key,
+word text,
+letter text,
+xml text
+);
+create TABLE itype (
+id integer primary key,
+itype integer,
+root text,
+rootId integer,
+nodeId text,
+word text,
+xml text
+);
+create TABLE entry (
+id integer primary key,
+root text,
+rootId integer,
+nodeId text,
+word text,
+xml text
+);
+
+CREATE TABLE xref (
+id INTEGER primary key,
+word TEXT,
+node TEXT,
+type INTEGER
+);
+COMMIT;
+EOF
+}
+sub initialiseDb {
+  my $db = shift;
+  my $sql = shift;
+
+  my $sth;
+  ### Attributes to pass to DBI->connect(  )
+  my %attr = (
+              PrintError => 1,
+              RaiseError => 0
+             );
+
+  eval {
+    $dbh = DBI->connect("dbi:SQLite:$db","","",\%attr) or die "couldn’t connect to db" . DBI->errstr;
+  };
+  if ($@) {
+    print STDERR "Error initialising db:$@\n";
+    exit 1;
+  }
+  my @c = split ";" , $sql;
+  my $ok = 1;
+  foreach my $line (@c) {
+    $sth = $dbh->prepare($line);
+    if (! $sth ) {
+      print STDERR "Error prepare init SQL: $line" . $dbh->errstr();
+      $ok = 0;
+    }
+    if (! $sth->execute()) {
+      print STDERR "Error executing init SQL:$line" . $dbh->errstr();
+      $ok = 0;
+  }
+}
+ if ($ok) {
+   print STDOUT "DB initialised OK\n";
+ }
+}
+#############################################################
+#
+#
+############################################################
 open($blog,">:encoding(UTF8)","x.log");
+if ($initdb) {
+  my $sql;
+  if ($sqlSource) {
+    # get SQL source from file
+  }
+  else {
+    $sql = getSQL();
+  }
+  if ( -e $dbname ) {
+    if (! $overwrite )  {
+      print STDERR "DB $dbname exists, remove or run with --overwrite\n";
+      exit 1;
+    }
+    else {
+      unlink $dbname;
+    }
+  }
+  if ( ! $sql ) {
+      print STDERR "No SQL source for inititialisation\n";
+      exit 1;
+  }
+  initialiseDb($dbname,$sql);
+}
 if ($xmlFile) {
   if ( ! -e $xmlFile) {
     print STDERR "No such file: $xmlFile";
@@ -381,10 +606,20 @@ if ($xmlFile) {
   }
   parseFile($xmlFile);
 }
+elsif ($parseDir ) {
+  if ( ! -d $parseDir ) {
+    print STDERR "No such directory: $parseDir\n";
+    exit 1;
+  }
+  parseDirectory($parseDir);
+}
+else {
+#  parseFile("./test/test_j0.xml");
+}
 #convertString("ja Oxdr sthwmn");
 
 #open $blog,">x.log";
 
 #parseFile("./xml/j0.xml");
-#parseFile("./test/test_j0.xml");
+
 #parseDirectory("./xml");
