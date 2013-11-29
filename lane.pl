@@ -67,16 +67,19 @@ my $elapsedTime = 0;
 #
 my $dbh = 0;
 my $writeCount = 0;
+my $totalWriteCount = 0;
 my $dbupdate = 1;        # set to 0 to prevent db writes
 my $dbErrorCount = 0;
 my $xrefsth;
 my $entrysth;
+my $rootsth;
 #
 
 my $currentNodeId;
 my $currentRoot;
 my $currentWord;
 my $currentItype;
+my $currentLetter;
 my @currentForms;
 my @currentStatus;
 ################################################################
@@ -245,10 +248,56 @@ sub traverseNode {
     $node = $node->getNextSibling;
   }
 }
-################################################################
+
+
+
+
+######################################################################
+# $dbh->prepare("insert into xref (word,bword,node) values (?,?,?)")
+# $dbh->prepare("insert into entry (root,word,itype,nodeId,bword,xml)
+#                       values (?,?,?,?,?,?)");
 #
+#####################################################################
+sub writeEntry {
+  my $root = shift;
+  my $broot = shift;
+  my $word = shift;
+  my $itype = shift;
+  my $node = shift;
+  my $bword = shift;
+  my $xml  = shift;
+
+  $debug && print STDERR "ENTRY write: [$root][$broot][$word][$itype][$bword][$node]\n";
+
+  if ($dryRun) {
+    $entryDbCount++;
+    return;
+  }
+  $entrysth->bind_param(1,$root);
+  $entrysth->bind_param(2,$broot);
+  $entrysth->bind_param(3,$word);
+  $entrysth->bind_param(4,$itype);
+  $entrysth->bind_param(5,$node);
+  $entrysth->bind_param(6,$bword);
+  $entrysth->bind_param(7,$xml);
+  if ($entrysth->execute()) {
+    $entryDbCount++;
+    $writeCount++;
+  }
+  else {
+    $dbErrorCount++;
+  }
+  if ($writeCount > $commitCount) {
+    $dbh->commit();
+    $dbh->begin_work();
+    $totalWriteCount += $writeCount;
+    $writeCount = 0;
+  }
+}
+######################################################################
+# $dbh->prepare("insert into xref (word,bword,node) values (?,?,?)")
 #
-################################################################
+#####################################################################
 sub writeXref {
   my $word = shift;
   my $bword = shift;
@@ -272,6 +321,41 @@ sub writeXref {
   }
   if ($writeCount > $commitCount) {
     $dbh->commit();
+    $dbh->begin_work();
+    $totalWriteCount += $writeCount;
+    $writeCount = 0;
+  }
+}
+######################################################################
+# $dbh->prepare("insert into root (word,bword,letter) values (?,?,?)");
+#
+#####################################################################
+sub writeRoot {
+  my $word = shift;
+  my $bword = shift;
+  my $letter = shift;
+
+  $debug && print STDERR "ROOT write: [$word][$bword][$letter]\n";
+
+  if ($dryRun) {
+    $rootDbCount++;
+    return;
+  }
+  $rootsth->bind_param(1,$word);
+  $rootsth->bind_param(2,$bword);
+  $rootsth->bind_param(3,$letter);
+  if ($rootsth->execute()) {
+    $rootDbCount++;
+    $writeCount++;
+  }
+  else {
+    $dbErrorCount++;
+  }
+  if ($writeCount > $commitCount) {
+    $dbh->commit();
+    $dbh->begin_work();
+    $totalWriteCount += $writeCount;
+    $writeCount = 0;
   }
 }
 ################################################################
@@ -339,7 +423,9 @@ sub processRoot {
   # write root record ?
   #
   if ($entryCount > 0) {
-    $rootDbCount++;
+    if ( ! $dryRun ) {
+      writeRoot(convertString($currentRoot),$currentRoot,$currentLetter);
+    }
   }
   for (my $i=0;$i < $entryCount;$i++) {
     my $entry = $entries->item($i);
@@ -433,10 +519,12 @@ sub processRoot {
               $xml = $entry->toString;
             }
           }
-          $entryDbCount++;
           #
           # update db
           #
+          writeEntry(convertString($currentRoot),$currentRoot,
+                     convertString($currentWord),
+                     $currentItype,$currentNodeId,$currentWord,$xml);
         }
         else {
           print STDERR "Parse warning 3: No node or word\n";
@@ -468,6 +556,13 @@ sub parseFile {
   for (my $i = 0; $i < $n; $i++) {
 
     my $div1Node = $nodes->item($i);
+    my $attr = $div1Node->getAttributeNode("type");
+    if ($attr && ($attr->getValue =~ /alphabetical\s+letter/i)) {
+      $attr = $div1Node->getAttributeNode("n");
+      if ($attr) {
+        $currentLetter = $attr->getValue;
+      }
+    }
     my $roots = $div1Node->getElementsByTagName("div2");
     my $rootCount = $roots->getLength;
     for (my $j=0;$j < $rootCount;$j++) {
@@ -494,6 +589,10 @@ sub parseFile {
   close OUT;
 
   $doc->dispose;
+  if ( ! $dryRun ) {
+    $dbh->commit();
+  }
+
   my $end = time();
   $elapsedTime = $end - $start;
   print STDERR sprintf "Skip root count         : %d\n",$skipRootCount;
@@ -507,10 +606,10 @@ sub parseFile {
   print STDERR sprintf "Root count              : %d\n",$rootDbCount;
   print STDERR sprintf "Entry count             : %d\n",$entryDbCount;
   print STDERR sprintf "Elapse time             : %.2f\n", $elapsedTime;
-
   if ( ! $dryRun ) {
-    $dbh->commit();
+    print STDERR sprintf "DB write count          : %d\n", $totalWriteCount;
   }
+
 }
 ################################################################
 #
@@ -577,6 +676,7 @@ BEGIN TRANSACTION;
 CREATE TABLE root (
 id integer primary key,
 word text,
+bword text,
 letter text,
 xml text
 );
@@ -584,7 +684,7 @@ create TABLE itype (
 id integer primary key,
 itype integer,
 root text,
-rootId integer,
+broot text,
 nodeId text,
 word text,
 xml text
@@ -592,9 +692,10 @@ xml text
 create TABLE entry (
 id integer primary key,
 root text,
-rootId integer,
-nodeId text,
+broot text,
 word text,
+itype text,
+nodeId text,
 bword text,
 xml text
 );
@@ -633,7 +734,7 @@ sub openDb {
   else {
     $verbose && print STDERR "Opened db $db\n";
   }
-  $dbh->{AutoCommit} => 1;
+  $dbh->{AutoCommit} = 1;
   $dbh->begin_work;
 }
 ################################################################
@@ -672,7 +773,7 @@ sub initialiseDb {
   }
 }
  if ($ok) {
-   print STDOUT "DB initialised OK\n";
+   $verbose && print STDERR "DB initialised OK\n";
  }
   $dbh->disconnect;
 }
@@ -708,6 +809,8 @@ if ($initdb) {
 if (! $dryRun ) {
    openDb($dbname);
    $xrefsth = $dbh->prepare("insert into xref (word,bword,node) values (?,?,?)");
+   $entrysth = $dbh->prepare("insert into entry (root,broot,word,itype,nodeId,bword,xml) values (?,?,?,?,?,?,?)");
+   $rootsth = $dbh->prepare("insert into root (word,bword,letter) values (?,?,?)");
 }
 if ($xmlFile) {
   if ( ! -e $xmlFile) {
