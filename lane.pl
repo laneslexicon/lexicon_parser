@@ -251,16 +251,18 @@ sub traverseNode {
 ################################################################
 sub writeXref {
   my $word = shift;
+  my $bword = shift;
   my $node = shift;
 
-  $debug && print STDERR "XREF write: [$word][$node]\n";
+  $debug && print STDERR "XREF write: [$word][$bword][$node]\n";
 
   if ($dryRun) {
     $xrefDbCount++;
     return;
   }
   $xrefsth->bind_param(1,$word);
-  $xrefsth->bind_param(2,$node);
+  $xrefsth->bind_param(2,$bword);
+  $xrefsth->bind_param(3,$node);
   if ($xrefsth->execute()) {
     $xrefDbCount++;
     $writeCount++;
@@ -294,7 +296,7 @@ sub convertNode {
         #
         # write xref record using: $currentWord,$currentNodeId,$text,$str
         #
-        writeXref($str,$currentNodeId);
+        writeXref($str,$text,$currentNodeId);
       }
     } else {
       print STDERR "Parse warning 2: node <$nodeName> has lang=ar but no text\n";
@@ -593,12 +595,14 @@ root text,
 rootId integer,
 nodeId text,
 word text,
+bword text,
 xml text
 );
 
 CREATE TABLE xref (
 id INTEGER primary key,
 word TEXT,
+bword text,
 node TEXT,
 type INTEGER
 );
@@ -703,7 +707,7 @@ if ($initdb) {
 }
 if (! $dryRun ) {
    openDb($dbname);
-   $xrefsth = $dbh->prepare("insert into xref (word,node) values (?,?)");
+   $xrefsth = $dbh->prepare("insert into xref (word,bword,node) values (?,?,?)");
 }
 if ($xmlFile) {
   if ( ! -e $xmlFile) {
