@@ -99,6 +99,7 @@ sub writelog {
 ################################################################
 sub convertString {
   my $t = shift;
+  my $type = shift;
   my $s = $t;
 
   return $t unless ! $skipConvert;
@@ -121,7 +122,7 @@ sub convertString {
   my $spaces = ($r =~ s/ / /g);
 
   if (($c + $spaces) != length $t) {
-    writelog($blog,"conversion error [$s]->[$t]");
+    writelog($blog,"[$currentNodeId][$type][$s]->[$t]");
   }
   return $t;
 }
@@ -248,12 +249,8 @@ sub traverseNode {
     $node = $node->getNextSibling;
   }
 }
-
-
-
-
 ######################################################################
-# $dbh->prepare("insert into xref (word,bword,node) values (?,?,?)")
+#
 # $dbh->prepare("insert into entry (root,word,itype,nodeId,bword,xml)
 #                       values (?,?,?,?,?,?)");
 #
@@ -375,7 +372,7 @@ sub convertNode {
       my $textNode = $node->getFirstChild;
       if ($textNode->getNodeType == TEXT_NODE) {
         my $text = $textNode->getNodeValue;
-        my $str = convertString($text);
+        my $str = convertString($text,$nodeName);
         $textNode->setNodeValue($str);
         #
         # write xref record using: $currentWord,$currentNodeId,$text,$str
@@ -424,7 +421,7 @@ sub processRoot {
   #
   if ($entryCount > 0) {
     if ( ! $dryRun ) {
-      writeRoot(convertString($currentRoot),$currentRoot,$currentLetter);
+      writeRoot(convertString($currentRoot,"root"),$currentRoot,$currentLetter);
     }
   }
   for (my $i=0;$i < $entryCount;$i++) {
@@ -509,7 +506,7 @@ sub processRoot {
             my $clone = $entry->cloneNode(1);
             if ($clone->getNodeType == ELEMENT_NODE) {
               traverseAndConvertNode($clone);
-              $clone->setAttribute("key",convertString($currentWord));
+              $clone->setAttribute("key",convertString($currentWord,"word"));
               $xml =  $clone->toString;
             }
             else {
@@ -522,8 +519,8 @@ sub processRoot {
           #
           # update db
           #
-          writeEntry(convertString($currentRoot),$currentRoot,
-                     convertString($currentWord),
+          writeEntry(convertString($currentRoot,"root"),$currentRoot,
+                     convertString($currentWord,"word"),
                      $currentItype,$currentNodeId,$currentWord,$xml);
         }
         else {
@@ -546,6 +543,11 @@ sub parseFile {
   my $fileName = shift;
   my $start = time();
   print STDERR "Parsing file: $fileName\n";
+  my $conversionlog = $fileName;
+  $conversionlog =~ s/\.xml$//;
+  $conversionlog .= "_buck.log";
+  open($blog,">:encoding(UTF8)",$conversionlog);
+
   my $parser = new XML::DOM::Parser;
   my $doc = $parser->parsefile ($fileName);
 
@@ -663,6 +665,15 @@ sub parseDirectory {
 
   if ($@) {
     print STDERR "File::Find error opening directory:[$d]\n";
+    return;
+  }
+
+  foreach my $h (@totals) {
+      print STDERR sprintf "%30s %10d %10d %10d\n",
+        $h->{File},
+        $h->{"Root count"},
+        $h->{"Entry count"},
+        $h->{"Xref count"};
   }
 }
 ################################################################
@@ -781,7 +792,7 @@ sub initialiseDb {
 #
 #
 ############################################################
-open($blog,">:encoding(UTF8)","x.log");
+
 if ($initdb) {
   my $sql;
   if ($sqlSource) {
