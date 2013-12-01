@@ -1,10 +1,13 @@
 #!/usr/bin/perl -w
 use strict;
+use POSIX;
 use XML::DOM;
 use XML::Parser;
 use Encode;
 use utf8;
 use DBI;
+use File::Spec;
+use File::Basename;
 use File::Find;
 use Data::Dumper;
 use Getopt::Long;
@@ -16,7 +19,9 @@ my $missingIdCount = 0;
 binmode STDERR, ":utf8";
 binmode STDOUT, ":utf8";
 my $blog;                       # buckwalter conversion log handle
-
+my $plog;   # parse log for diagnostic output;
+my $elog;   # error log
+my $dlog;
 #
 # cmd line args
 #
@@ -30,15 +35,25 @@ my $sqlSource = "";
 my $skipConvert = 0;
 my $debug = 0;
 my $dbname = "test.sqlite";
-my $overwrite = 0;
-my $dryRun = 0;
+my $overwrite = 0;        # overwrite existing db
+my $dryRun = 0;           # no db update
+my $textMargin = 30;
+my $suppressFixups = 0;
+my $suppressContext = 0;
+my $doTest = "";
+my $logDir = "/tmp";
 GetOptions (
+            "logdir=s" => \$logDir,
+            "test=s" => \$doTest,
+            "no-context"  => \$suppressContext,
+            "suppress-fixups" => \$suppressFixups,
             "dry-run"   => \$dryRun,
             "overwrite" => \$overwrite,
             "no-convert" =>  \$skipConvert, # do not convert nodes with lang="ar"
             "verbose" => \$verbose,
             "debug" => \$debug,
             "commit=i" => \$commitCount, # db.commit after write count
+            "margin=i" => \$textMargin,   # before & after text length to include in conversion error
             "xml=s" => \$xmlFile,        # file to parse
             "dir=s" => \$parseDir, # directory with xml files to be parsed
             "initdb" => \$initdb,  # delete existing records
@@ -63,6 +78,8 @@ my $entryDbCount = 0;
 my $rootDbCount = 0;
 my $genWarning = 0;
 my $elapsedTime = 0;
+my $conversionErrors = 0;
+my $adjustedConversions = 0;
 #
 #
 my $dbh = 0;
@@ -82,6 +99,59 @@ my $currentItype;
 my $currentLetter;
 my @currentForms;
 my @currentStatus;
+my $currentText;
+sub testConvertString {
+  my $t = shift;
+  my $s = $t;
+  my ($start,$end,$ix);
+
+
+  my $c = 0;
+  $c += ($t =~ tr/'|OWI}A/\x{621}\x{622}\x{623}\x{624}\x{625}\x{626}\x{627}/);
+  $c += ($t =~ tr/bptvjHx/\x{628}\x{629}\x{62a}\x{62b}\x{62c}\x{62d}\x{62e}/);
+  $c += ($t =~ tr/d*rzs$S/\x{62f}\x{630}\x{631}\x{632}\x{633}\x{634}\x{635}/);
+  $c += ($t =~ tr/DTZEg\-f/\x{636}\x{637}\x{638}\x{639}\x{63a}\x{640}\x{641}/);
+  $c += ($t =~ tr/qklmnhw/\x{642}\x{643}\x{644}\x{645}\x{646}\x{657}\x{648}/);
+  $c += ($t =~ tr/YyFNKau/\x{649}\x{64a}\x{64b}\x{64c}\x{64d}\x{64e}\x{64f}/);
+  $c += ($t =~ tr/i~o`{/\x{650}\x{651}\x{652}\x{670}\x{671}/);
+
+
+  # ^ as hamza above
+  # = alef with madda above (in buckwalter docs is |)
+  # _ tatweel , also - above
+  $c += ($t =~ tr/^=_/\x{654}\x{622}\x{640}/);
+  my %h;
+  $h{indexes} = [];
+  # count the spaces etc
+  my $r = $t;
+  my $spaces = ($r =~ s/ / /g);
+  my $sz = length $t;
+  my $errStr = "";
+
+  my @indexes;
+  for (my $i=0;$i < $sz;$i++) {
+    my $x= substr $t,$i,1;
+    if ($x eq (substr $s,$i,1)) {
+#     if ($x !~ /\p{IsPunct}|\p{IsSpace}/) {
+      if ($x !~ /\p{IsSpace}/) {
+        $errStr .= "x";
+        push @indexes,$i;
+      }
+      else {
+        $errStr .= "-";
+      }
+    }
+    else {
+        $errStr .= "-";
+    }
+  }
+  return {
+          count => $#indexes + 1,
+          err => $errStr,
+          t => $t,
+          indexes => \@indexes
+         };
+}
 ################################################################
 #
 #
@@ -95,12 +165,57 @@ sub writelog {
 
 }
 ################################################################
+#
+#
+################################################################
+sub fixup {
+  my $s = shift;
+
+  my $fixup = 0;
+  my $err = "";
+  if ($s =~ /^\s*\d+\s*$/) {
+    $err = "itype";
+    $fixup++;
+  }
+    my $ix = index $s,"@";
+    if ($ix != -1) {
+      if ((substr $s,$ix -1,1) eq "A") {
+        $err  = "alef wasla";
+        $fixup++;
+      }
+    }
+  if ($s =~ /3a/) {
+    $err = "3 for h";
+    $fixup++;
+  }
+  if ($s =~ /V/) {
+    $err = "Capital letter V";
+    $fixup++;
+  }
+  if ($s =~ /G/) {
+    $err = "Capital letter G";
+    $fixup++;
+  }
+  $adjustedConversions =  $adjustedConversions + $fixup;
+  return ($fixup,$err);
+}
+################################################################
 #  buckwalter conversion
+#
+#  to load the errors as table:
+#       run with --no-context
+#       open log in emacs and M-x org-mode
+#       mark whole buffer
+#       C-u C-c |
+#   (C-u sets delimiter to ,)
+#
+#
 ################################################################
 sub convertString {
   my $t = shift;
-  my $type = shift;
+  my $proctype = shift;
   my $s = $t;
+  my ($start,$strLen,$ix);
 
   return $t unless ! $skipConvert;
   my $c = 0;
@@ -112,6 +227,7 @@ sub convertString {
   $c += ($t =~ tr/YyFNKau/\x{649}\x{64a}\x{64b}\x{64c}\x{64d}\x{64e}\x{64f}/);
   $c += ($t =~ tr/i~o`{/\x{650}\x{651}\x{652}\x{670}\x{671}/);
 
+
   # ^ as hamza above
   # = alef with madda above (in buckwalter docs is |)
   # _ tatweel , also - above
@@ -122,7 +238,37 @@ sub convertString {
   my $spaces = ($r =~ s/ / /g);
 
   if (($c + $spaces) != length $t) {
-    writelog($blog,"[$currentNodeId][$type][$s]->[$t]");
+    $conversionErrors++;
+    my ($fix,$err) = fixup($s);
+
+    if ($fix && $suppressFixups) {
+      return $t;
+    }
+    writelog($blog,sprintf "%d,%d,%s,%s,%s,%s,%s,%s,%s",
+             $fix,
+             $conversionErrors,
+             $currentNodeId,
+             $currentRoot,
+             $currentWord,
+             $proctype,
+             $err,
+             $s,
+             $t);
+
+    if (! $suppressContext &&  $currentText ) {
+      $ix = index $currentText , $s;
+      if ($ix != -1) {
+        $start = $ix - $textMargin;
+        if ($start < 0) {
+          $start = 0;
+        }
+        $strLen = (length $s) + $textMargin;
+        if (($ix + $strLen) > (length $currentText)) {
+          $strLen = length $currentText;
+        }
+        writelog($blog,sprintf ">>>\n%s\n<<<\n",(substr $currentText,$start, $strLen));
+      }
+    }
   }
   return $t;
 }
@@ -145,8 +291,8 @@ sub processForm {
   my $attrs = $formNode->getAttributes;
   if ($attrs->getLength > 0) {
     if ($debug) {
-      print STDERR "Node $currentNodeId, <form> with attibutes:\n";
-      print STDERR ">>>\n" . $formNode->toString . "\n<<<\n";
+      print $dlog "Node $currentNodeId, <form> with attibutes:\n";
+      print $dlog ">>>\n" . $formNode->toString . "\n<<<\n";
     }
     $formWithAttributes++;
     my $n = $attrs->getNamedItem("n");
@@ -155,7 +301,7 @@ sub processForm {
       if ($v eq "infl") {
         # do something with it?
       } elsif ( $v ) {
-        $debug && print STDERR "<form> with non-infl type: $v\n";
+        $debug && print $dlog "<form> with non-infl type: $v\n";
       }
     }
   }
@@ -185,13 +331,13 @@ sub processForm {
                       ($currentItype =~ /^\d+$/))
                 {
                 $currentWord = $t;
-                $debug && print STDERR ">>> node $currentNodeId: first <orth> promoted to <itype> currentWord : $t\n";
+                $debug && print $dlog ">>> node $currentNodeId: first <orth> promoted to <itype> currentWord : $t\n";
                 $itypePromotion++;
                 $currentStatus[3] = "i";
               }
               elsif (! $currentWord ) {
                 $currentWord = $t;
-                $debug && print STDERR ">>> node $currentNodeId: first <orth> promoted to currentWord : $t\n";
+                $debug && print $dlog ">>> node $currentNodeId: first <orth> promoted to currentWord : $t\n";
                 $orthPromotion++;
                 $currentStatus[4] = "o";
               }
@@ -207,7 +353,7 @@ sub processForm {
             }
           }
         } else {
-          print STDERR "Parse warning 1: <orth> without child nodes\n";
+          print $elog "Parse warning 1: <orth> without child nodes\n";
           $genWarning++;
         }
       }
@@ -264,7 +410,7 @@ sub writeEntry {
   my $bword = shift;
   my $xml  = shift;
 
-  $debug && print STDERR "ENTRY write: [$root][$broot][$word][$itype][$bword][$node]\n";
+  $debug && print $dlog "ENTRY write: [$root][$broot][$word][$itype][$bword][$node]\n";
 
   if ($dryRun) {
     $entryDbCount++;
@@ -300,7 +446,7 @@ sub writeXref {
   my $bword = shift;
   my $node = shift;
 
-  $debug && print STDERR "XREF write: [$word][$bword][$node]\n";
+  $debug && print $dlog "XREF write: [$word][$bword][$node]\n";
 
   if ($dryRun) {
     $xrefDbCount++;
@@ -332,7 +478,7 @@ sub writeRoot {
   my $bword = shift;
   my $letter = shift;
 
-  $debug && print STDERR "ROOT write: [$word][$bword][$letter]\n";
+  $debug && print $dlog "ROOT write: [$word][$bword][$letter]\n";
 
   if ($dryRun) {
     $rootDbCount++;
@@ -380,7 +526,7 @@ sub convertNode {
         writeXref($str,$text,$currentNodeId);
       }
     } else {
-      print STDERR "Parse warning 2: node <$nodeName> has lang=ar but no text\n";
+      print $plog "Parse warning 2: node <$nodeName> has lang=ar but no text\n";
       $genWarning++;
     }
   }
@@ -414,18 +560,17 @@ sub processRoot {
   my $keyAttr;
   my $key;
   my $skipRoot;
-  print STDERR sprintf "[Root=%s][Entries=%d]\n",$currentRoot,$entryCount;
-
+  $currentText = $node->toString;
+  print $plog sprintf "[Root=%s][Entries=%d][TextLength=%d]\n",$currentRoot,$entryCount,length $currentText;
   #
   # write root record ?
   #
   if ($entryCount > 0) {
-    if ( ! $dryRun ) {
-      writeRoot(convertString($currentRoot,"root"),$currentRoot,$currentLetter);
-    }
+    writeRoot(convertString($currentRoot,"root"),$currentRoot,$currentLetter);
   }
   for (my $i=0;$i < $entryCount;$i++) {
     my $entry = $entries->item($i);
+    $currentText = $entry->toString;
     #    print sprintf "Processing entryFree %d [ %s  ]\n",$i,$entry->getNodeName;
     my $id;
     my $key;
@@ -446,7 +591,7 @@ sub processRoot {
       if (($text =~ /see\s+supplement/i) && ($entryCount == 1)) {
         $skipRoot = 1;
         $skipRootCount++;
-        $verbose && print STDERR "Root [$currentRoot] skipped, <see supplement> entry\n";
+        $verbose && print $plog "Root [$currentRoot] skipped, <see supplement> entry\n";
       }
     }
     if (! $skipRoot ) {
@@ -454,7 +599,7 @@ sub processRoot {
       if ($idAttr) {
         $id = $idAttr->getValue();
       } else {
-        $verbose && print STDERR "Node has no ID:" . $entry->toString . "\n";
+        $verbose && print $plog "Node has no ID:" . $entry->toString . "\n";
         $id = createId();
         $entry->setAttribute("id",$id);
         $currentStatus[0] = "m";
@@ -463,7 +608,7 @@ sub processRoot {
       if ($keyAttr) {
         $key = $keyAttr->getValue();
         if (! $key ) {
-          $verbose && print STDERR "Node has no key:" . $entry->toString . "\n";
+          $verbose && print $plog "Node has no key:" . $entry->toString . "\n";
           $entryFreeWithoutKey++;
           $currentStatus[1] = "k";
         } else {
@@ -478,15 +623,16 @@ sub processRoot {
           my $t = $currentWord;
           $currentWord =~ tr/3/h/;
           $currentStatus[2] = "s";
-          $verbose && print STDERR "At node $currentNodeId: change $t -> $currentWord\n";
+          $verbose && print $plog "At node $currentNodeId: change $t -> $currentWord\n";
         } elsif ($currentWord =~ /\d/) {
           $numeric = "n";
           $currentStatus[5] = "n";
         }
         $entry->setAttribute("key",$currentWord);
         my $status = join "",@currentStatus; #$numeric,
-        print STDERR sprintf "[%03d][%s]>>> %5s%7s %-30s%-5s %s\n",
+        print $plog sprintf "[%03d][%06d][%s]>>> %5s%7s %-30s%-5s %s\n",
           $i,
+          length $currentText,
           $status,
           $currentRoot,
           $currentNodeId,
@@ -510,7 +656,7 @@ sub processRoot {
               $xml =  $clone->toString;
             }
             else {
-              print STDERR "Error cloning node for transliteration:$currentNodeId,$currentWord";
+              print $elog "Error cloning node for transliteration:$currentNodeId,$currentWord";
             }
             if (! $xml ) {
               $xml = $entry->toString;
@@ -524,12 +670,12 @@ sub processRoot {
                      $currentItype,$currentNodeId,$currentWord,$xml);
         }
         else {
-          print STDERR "Parse warning 3: No node or word\n";
+          print $plog "Parse warning 3: No node or word\n";
           $genWarning++;
         }
       }
       else {
-        print STDERR "Parse warning 4: No ID field\n";
+        print $plog "Parse warning 4: No ID field\n";
         $genWarning++;
       }
     }
@@ -539,15 +685,38 @@ sub processRoot {
 #
 #
 ################################################################
+sub openLogs {
+  my $filename = shift;
+
+  my ($base,$p,$suffix) = fileparse($filename,'\..*');
+
+  if (! $base ) {
+    $base = strftime "%F-%T", localtime $^T;
+    $base =~ s/:/-/g;
+  }
+  if ( ! -d $logDir ) {
+    $logDir = ".";
+  }
+  my $errlog = File::Spec->catfile($logDir,$base . "_err.log");
+  my $parselog = File::Spec->catfile($logDir,$base . "_parse.log");
+  my $convlog = File::Spec->catfile($logDir,$base . "_conv.log");
+  my $debuglog = File::Spec->catfile($logDir,$base . "_debug.log");
+  open($blog,">:encoding(UTF8)",$convlog);
+  open($plog,">:encoding(UTF8)",$parselog);
+  open($elog,">:encoding(UTF8)",$errlog);
+  $debug &&  open($dlog,">:encoding(UTF8)",$debuglog);
+
+}
+################################################################
+#
+#
+################################################################
 sub parseFile {
   my $fileName = shift;
   my $start = time();
-  print STDERR "Parsing file: $fileName\n";
-  my $conversionlog = $fileName;
-  $conversionlog =~ s/\.xml$//;
-  $conversionlog .= "_buck.log";
-  open($blog,">:encoding(UTF8)",$conversionlog);
+#  print STDERR "Parsing file: $fileName\n";
 
+  openLogs($fileName);
   my $parser = new XML::DOM::Parser;
   my $doc = $parser->parsefile ($fileName);
 
@@ -558,6 +727,7 @@ sub parseFile {
   for (my $i = 0; $i < $n; $i++) {
 
     my $div1Node = $nodes->item($i);
+    $currentText = $div1Node->toString;
     my $attr = $div1Node->getAttributeNode("type");
     if ($attr && ($attr->getValue =~ /alphabetical\s+letter/i)) {
       $attr = $div1Node->getAttributeNode("n");
@@ -575,7 +745,7 @@ sub parseFile {
       }
     }
   }
-  print STDERR "\nControl totals:\n";
+
   # Print doc file
   # $doc->printToFile ("out.xml");
 
@@ -597,21 +767,28 @@ sub parseFile {
 
   my $end = time();
   $elapsedTime = $end - $start;
-  print STDERR sprintf "Skip root count         : %d\n",$skipRootCount;
-  print STDERR sprintf "<entryFree> without key : %d\n",$entryFreeWithoutKey;
-  print STDERR sprintf "<entryFree> without id  : %d\n",$entryFreeWithoutId;
-  print STDERR sprintf "Itype promotion         : %d\n",$itypePromotion;
-  print STDERR sprintf "Orth promotion          : %d\n",$orthPromotion;
-  print STDERR sprintf "Orth drop               : %d\n",$orthDrop;
-  print STDERR sprintf "General warning         : %d\n",$genWarning;
-  print STDERR sprintf "Xref count              : %d\n",$xrefDbCount;
-  print STDERR sprintf "Root count              : %d\n",$rootDbCount;
-  print STDERR sprintf "Entry count             : %d\n",$entryDbCount;
-  print STDERR sprintf "Elapse time             : %.2f\n", $elapsedTime;
+  print $plog "\n";
+  print $plog sprintf "Skip root count         : %d\n",$skipRootCount;
+  print $plog sprintf "<entryFree> without key : %d\n",$entryFreeWithoutKey;
+  print $plog sprintf "<entryFree> without id  : %d\n",$entryFreeWithoutId;
+  print $plog sprintf "Itype promotion         : %d\n",$itypePromotion;
+  print $plog sprintf "Orth promotion          : %d\n",$orthPromotion;
+  print $plog sprintf "Orth drop               : %d\n",$orthDrop;
+  print $plog sprintf "General warning         : %d\n",$genWarning;
+  print $plog sprintf "Xref count              : %d\n",$xrefDbCount;
+  print $plog sprintf "Root count              : %d\n",$rootDbCount;
+  print $plog sprintf "Entry count             : %d\n",$entryDbCount;
+  print $plog sprintf "Elapse time             : %.2f\n", $elapsedTime;
   if ( ! $dryRun ) {
-    print STDERR sprintf "DB write count          : %d\n", $totalWriteCount;
+    print $plog sprintf "DB write count          : %d\n", $totalWriteCount;
   }
+  print $plog sprintf "Conversion Errors       : %d\n",$conversionErrors;
+  print $plog sprintf "Adjusted conversions    : %d\n",$adjustedConversions;
 
+  close $plog;
+  close $elog;
+  close $blog;
+  $debug && close $dlog;
 }
 ################################################################
 #
@@ -669,7 +846,7 @@ sub parseDirectory {
   }
 
   foreach my $h (@totals) {
-      print STDERR sprintf "%30s %10d %10d %10d\n",
+      print STDOUT sprintf "%30s %10d %10d %10d\n",
         $h->{File},
         $h->{"Root count"},
         $h->{"Entry count"},
@@ -743,7 +920,7 @@ sub openDb {
     exit 1;
   }
   else {
-    $verbose && print STDERR "Opened db $db\n";
+    $verbose && print $plog "Opened db $db\n";
   }
   $dbh->{AutoCommit} = 1;
   $dbh->begin_work;
@@ -784,15 +961,52 @@ sub initialiseDb {
   }
 }
  if ($ok) {
-   $verbose && print STDERR "DB initialised OK\n";
+   $verbose && print $plog "DB initialised OK\n";
  }
   $dbh->disconnect;
 }
+
 #############################################################
 #
 #
 ############################################################
+sub testErrs {
+  my @words = qw(jadoYBN jub~aA'N? A_ilaY *aAti raHolK kaA@lomaA=timi Hus~araA 1a2u3a);
+  foreach my $word (@words) {
+    my $e = testConvertString($word);
+    print $word . "\n";
+    print $e->{err} . "\n";
+    print $e->{count} . "\n";
+    print join ",",@{$e->{indexes}};
+    print "\n";
+  }
+}
+sub runTest {
+  my $fn = shift;
 
+  my %tests = ( errs => \&testErrs,
+                xml =>  sub { $dryRun = 1;parseFile("./test/test_j0.xml");},
+                logs => sub { openLogs("./xml/j0.xml"); },
+                dir  => sub { $dryRun = 1;parseDirectory("./testdir");}
+              );
+
+  if (exists $tests{$fn} ) {
+    $tests{$fn}->();
+  }
+  else {
+    print STDERR "Unknown test routine: $fn\n";
+  }
+  exit 0;
+}
+#############################################################
+#
+# MAIN
+#
+############################################################
+if ($doTest) {
+  runTest($doTest);
+
+}
 if ($initdb) {
   my $sql;
   if ($sqlSource) {
@@ -836,9 +1050,6 @@ elsif ($parseDir ) {
     exit 1;
   }
   parseDirectory($parseDir);
-}
-else {
-  parseFile("./test/test_j0.xml");
 }
 #convertString("ja Oxdr sthwmn");
 
