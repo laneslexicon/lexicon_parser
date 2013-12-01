@@ -236,38 +236,44 @@ sub convertString {
   # count the spaces etc
   my $r = $t;
   my $spaces = ($r =~ s/ / /g);
-
-  if (($c + $spaces) != length $t) {
-    $conversionErrors++;
-    my ($fix,$err) = fixup($s);
-
-    if ($fix && $suppressFixups) {
-      return $t;
-    }
-    writelog($blog,sprintf "%d,%d,%s,%s,%s,%s,%s,%s,%s",
-             $fix,
-             $conversionErrors,
-             $currentNodeId,
-             $currentRoot,
-             $currentWord,
-             $proctype,
-             $err,
-             $s,
-             $t);
-
-    if (! $suppressContext &&  $currentText ) {
-      $ix = index $currentText , $s;
-      if ($ix != -1) {
-        $start = $ix - $textMargin;
-        if ($start < 0) {
-          $start = 0;
+  my $sz = length $t;
+  for (my $i=0;$i < $sz;$i++) {
+    my $x= substr $t,$i,1;
+    if ($x eq (substr $s,$i,1)) {
+      #     if ($x !~ /\p{IsPunct}|\p{IsSpace}/) {
+      if ($x !~ /\p{IsSpace}/) {
+        $conversionErrors++;
+        my ($fix,$err) = fixup($s);
+        if ($fix && $suppressFixups) {
+          #
         }
-        $strLen = (length $s) + $textMargin;
-        if (($ix + $strLen) > (length $currentText)) {
-          $strLen = length $currentText;
-        }
-        writelog($blog,sprintf ">>>\n%s\n<<<\n",(substr $currentText,$start, $strLen));
+        writelog($blog,sprintf "%d,%d,%s,%s,%s,%s,%s,%d,%s,%s",
+                 $fix,
+                 $conversionErrors,
+                 $currentNodeId,
+                 $currentRoot,
+                 $currentWord,
+                 $proctype,
+                 $err,
+                 $i,
+                 $s,
+                 $t);
+
       }
+    }
+  }
+  if (! $suppressContext &&  $currentText ) {
+    $ix = index $currentText , $s;
+    if ($ix != -1) {
+      $start = $ix - $textMargin;
+      if ($start < 0) {
+        $start = 0;
+      }
+      $strLen = (length $s) + $textMargin;
+      if (($ix + $strLen) > (length $currentText)) {
+        $strLen = length $currentText;
+      }
+      writelog($blog,sprintf ">>>\n%s\n<<<\n",(substr $currentText,$start, $strLen));
     }
   }
   return $t;
@@ -702,6 +708,8 @@ sub openLogs {
   my $convlog = File::Spec->catfile($logDir,$base . "_conv.log");
   my $debuglog = File::Spec->catfile($logDir,$base . "_debug.log");
   open($blog,">:encoding(UTF8)",$convlog);
+  print $blog "Fixed,Error no,Node,Root,Word,Type,Err,No.,In,Out\n";
+
   open($plog,">:encoding(UTF8)",$parselog);
   open($elog,">:encoding(UTF8)",$errlog);
   $debug &&  open($dlog,">:encoding(UTF8)",$debuglog);
