@@ -184,6 +184,10 @@ sub fixup {
         $fixup++;
       }
     }
+  if ($s =~ /&[amp;]*c/) {
+    $err = "Etc";
+    $fixup++;
+  }
   if ($s =~ /3a/) {
     $err = "3 for h";
     $fixup++;
@@ -247,7 +251,7 @@ sub convertString {
         if ($fix && $suppressFixups) {
           #
         }
-        writelog($blog,sprintf "%d,%d,%s,%s,%s,%s,%s,%d,%s,%s",
+        writelog($blog,sprintf "%d,%d,%s,%s,%s,%s,%s,%d,%s,%s,%s",
                  $fix,
                  $conversionErrors,
                  $currentNodeId,
@@ -256,6 +260,7 @@ sub convertString {
                  $proctype,
                  $err,
                  $i,
+                 $x,
                  $s,
                  $t);
 
@@ -329,31 +334,27 @@ sub processForm {
           my $textNode = $child->getFirstChild;
           if ($textNode->getNodeType == TEXT_NODE) {
             my $t = $textNode->getNodeValue;
-#            print STDERR "Checking orth/itype ---->[$currentWord][$currentItype][$t]\n";
+            #            print STDERR "Checking orth/itype ---->[$currentWord][$currentItype][$t]\n";
             if ($t) {
               # this seems to be where key is the same as the numeric itype value
               if (
-                   (! $currentWord || ($currentWord =~ /^\s*\d+\s*$/)) &&
-                      ($currentItype =~ /^\d+$/))
-                {
+                  (! $currentWord || ($currentWord =~ /^\s*\d+\s*$/)) &&
+                  ($currentItype =~ /^\d+$/)) {
                 $currentWord = $t;
                 $debug && print $dlog ">>> node $currentNodeId: first <orth> promoted to <itype> currentWord : $t\n";
                 $itypePromotion++;
                 $currentStatus[3] = "i";
-              }
-              elsif (! $currentWord ) {
+              } elsif (! $currentWord ) {
                 $currentWord = $t;
                 $debug && print $dlog ">>> node $currentNodeId: first <orth> promoted to currentWord : $t\n";
                 $orthPromotion++;
                 $currentStatus[4] = "o";
-              }
-              elsif ($t =~ /^\d+$/) {
+              } elsif ($t =~ /^\d+$/) {
                 $orthDrop++;
                 $currentStatus[6] = "d";
-              }
-              elsif (($t ne "*") &&
-                  ( $t ne $currentRoot ) &&
-                  ( $t ne $currentWord )) {
+              } elsif (($t ne "*") &&
+                       ( $t ne $currentRoot ) &&
+                       ( $t ne $currentWord )) {
                 push @currentForms, $t;
               }
             }
@@ -432,8 +433,7 @@ sub writeEntry {
   if ($entrysth->execute()) {
     $entryDbCount++;
     $writeCount++;
-  }
-  else {
+  } else {
     $dbErrorCount++;
   }
   if ($writeCount > $commitCount) {
@@ -464,8 +464,7 @@ sub writeXref {
   if ($xrefsth->execute()) {
     $xrefDbCount++;
     $writeCount++;
-  }
-  else {
+  } else {
     $dbErrorCount++;
   }
   if ($writeCount > $commitCount) {
@@ -496,8 +495,7 @@ sub writeRoot {
   if ($rootsth->execute()) {
     $rootDbCount++;
     $writeCount++;
-  }
-  else {
+  } else {
     $dbErrorCount++;
   }
   if ($writeCount > $commitCount) {
@@ -708,7 +706,7 @@ sub openLogs {
   my $convlog = File::Spec->catfile($logDir,$base . "_conv.log");
   my $debuglog = File::Spec->catfile($logDir,$base . "_debug.log");
   open($blog,">:encoding(UTF8)",$convlog);
-  print $blog "Fixed,Error no,Node,Root,Word,Type,Err,No.,In,Out\n";
+  print $blog "Fixed,Error no,Node,Root,Word,Type,Err,Pos,Char,In,Out\n";
 
   open($plog,">:encoding(UTF8)",$parselog);
   open($elog,">:encoding(UTF8)",$errlog);
@@ -1015,14 +1013,14 @@ if ($doTest) {
   runTest($doTest);
 
 }
+my $sql;
+if ($sqlSource) {
+  # get SQL source from file
+}
+else {
+  $sql = getSQL();
+}
 if ($initdb) {
-  my $sql;
-  if ($sqlSource) {
-    # get SQL source from file
-  }
-  else {
-    $sql = getSQL();
-  }
   if ( -e $dbname ) {
     if (! $overwrite )  {
       print STDERR "DB $dbname exists, remove or run with --overwrite\n";
@@ -1040,10 +1038,23 @@ if ($initdb) {
 
 }
 if (! $dryRun ) {
-   openDb($dbname);
-   $xrefsth = $dbh->prepare("insert into xref (word,bword,node) values (?,?,?)");
-   $entrysth = $dbh->prepare("insert into entry (root,broot,word,itype,nodeId,bword,xml) values (?,?,?,?,?,?,?)");
-   $rootsth = $dbh->prepare("insert into root (word,bword,letter) values (?,?,?)");
+  if ( ! -e $dbname ) {
+    initialiseDb($dbname,$sql);
+  }
+  openDb($dbname);
+  #
+  # this doesn't catch the errors, so if file exists and tables are not right it will crash
+  #
+  eval {
+    $xrefsth = $dbh->prepare("insert into xref (word,bword,node) values (?,?,?)");
+    $entrysth = $dbh->prepare("insert into entry (root,broot,word,itype,nodeId,bword,xml) values (?,?,?,?,?,?,?)");
+    $rootsth = $dbh->prepare("insert into root (word,bword,letter) values (?,?,?)");
+  };
+  if ($@) {
+    print STDERR "SQL prepare error:$@\n";
+    print STDERR "DB updates disabled\n";
+    $dryRun = 1;
+  }
 }
 if ($xmlFile) {
   if ( ! -e $xmlFile) {
