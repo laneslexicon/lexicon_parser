@@ -93,6 +93,7 @@ my $entrysth;
 my $rootsth;
 my $lookupsth;    # for 'select id from entry where word = ?
 my $dlookupsth;    # for 'select id from entry where word = ? or word = ?
+my $updateNode;    # set links uses to check if the node xml needs saving
 #
 
 my $currentNodeId;
@@ -102,6 +103,7 @@ my $currentItype;
 my $currentLetter;
 my @currentForms;
 my @currentStatus;
+my $currentRecordId;
 my $currentText;
 sub testConvertString {
   my $t = shift;
@@ -978,8 +980,8 @@ sub initialiseDb {
   $dbh->disconnect;
 }
 ################################################################
-# these two subroutines traverse the node converting all text
-# nodes whose parent has lang="ar"
+#
+#
 #
 ################################################################
 sub setLinksForNode {
@@ -995,58 +997,64 @@ sub setLinksForNode {
   if ($nodeName eq "entryfree") {
     $skip = 1;
   }
-  while($parentNode && ! $skip) {
+  while ($parentNode && ! $skip) {
     $parentName = $parentNode->nodeName;
     if ($parentName eq "form") {
       $skip = 1;
     }
     $parentNode = $parentNode->getParentNode;
   }
-  print STDERR sprintf "[%d]<%s><%s>\n",$skip,$parentName,$nodeName;
+#  print STDERR sprintf "[%d]<%s><%s>\n",$skip,$parentName,$nodeName;
   return unless ! $skip;
   #  print "$nodeName\n";
   my $attr = $node->getAttributeNode("lang");
-  if ($attr && ($attr->getValue eq "ar")) {
-    if ($node->hasChildNodes) {
-      my $textNode = $node->getFirstChild;
-      if ($textNode->nodeType == XML_TEXT_NODE) {
-        my $text = $textNode->nodeValue;
-        ## lookup the word
+  if (! $attr || ($attr->getValue ne "ar")) {
+    return;
+  }
+  #
+  #  can it have multiple text nodes ?
+  #
+  if ($node->hasChildNodes) {
+    my $textNode = $node->getFirstChild;
+    if ($textNode->nodeType == XML_TEXT_NODE) {
+      my $text = $textNode->nodeValue;
+      ## lookup the word
+      if ($doTest) {
         $text = convertString($text);
-        $lookupsth->bind_param(1,$text);
-        my $ret = $lookupsth->execute();
-        print STDERR "Lookup:[$text]\n";
-        if ($ret) {
-          my ($id,$bword,$nodeId) = $lookupsth->fetchrow_array;
+      }
+      $lookupsth->bind_param(1,$text);
+      $lookupsth->execute();
+      #        print STDERR "Lookup:[$text]\n";
+      my ($id,$bword,$nodeId) = $lookupsth->fetchrow_array;
+      if ($id) {
+        print STDERR "Found at [$text] at [$id][$bword][$nodeId]\n";
+      } else {
+        #
+        # some have dammatan forms so check for these
+        #
+        $dlookupsth->bind_param(1,$text);
+        $text .= chr(0x64c);
+        #            print STDERR "Lookup:[$text]\n";
+        $dlookupsth->bind_param(2,$text);
+        if ($dlookupsth->execute()) {
+          ($id,$bword,$nodeId) = $dlookupsth->fetchrow_array;
           if ($id) {
             print STDERR "Found at [$id][$bword][$nodeId]\n";
-            # wrap entry in <a href="#$id">...</text>
-            # and update xml
-          } else {
-            $dlookupsth->bind_param(1,$text);
-            $text .= chr(0x64c);
-            print STDERR "Lookup:[$text]\n";
-            $dlookupsth->bind_param(2,$text);
-            if ($dlookupsth->execute()) {
-              ($id,$bword,$nodeId) = $dlookupsth->fetchrow_array;
-              if ($id) {
-                print STDERR "Found at [$id][$bword][$nodeId]\n";
-                # wrap entry in <a href="#$id">...</text>
-                # and update xml
-              }
-            }
-          }
-          #
-          #
-          #
-          if ($id) {
-            print STDERR "Insert link to record id=$id\n";
           }
         }
-      } else {
-        print $plog "Parse warning 2: node <$nodeName> has lang=ar but no text\n";
-        $genWarning++;
       }
+      #
+      #  check the record we're linking to is not this one
+      #
+      if ($id && ($id != $currentRecordId)) {
+        $node->setAttribute("goto",$id);
+        $node->setAttribute("nodeid",$nodeId);
+        $updateNode = 1;
+        print STDERR "Insert link to record id=$id\n";
+      }
+    } else {
+      print $plog "Parse warning 2: node <$nodeName> has lang=ar but no text\n";
+      $genWarning++;
     }
   }
 }
@@ -1078,22 +1086,43 @@ sub setLinks {
 
   $writeCount = 0;
   $sth = $dbh->prepare("select * from entry");
-  my $entries = $dbh->selectall_arrayref("SELECT id,root,broot,word,bword,nodeId,xml from entry where id < 10");
+  my $entries = $dbh->selectall_arrayref("SELECT id,root,broot,word,bword,nodeId,xml from entry where id < 20");
+  my $updatesth = $dbh->prepare('update entry set xml = ? where id = ?');
   foreach my $row (@$entries) {
-    my ($id, $root,$broot,$word,$bword,$node,$xml) = @$row;
+    my ($id, $root,$broot,$word,$bword,$nodeId,$xml) = @$row;
     print STDERR "$bword\n";
 #    print STDERR "$xml";
-    my $doc = $parser->parse($xml);
+    my $doc = $parser->parse_string($xml);
     my $nodes = $doc->getElementsByTagName ("entryFree");
     my $n = $nodes->size();
     print STDERR "Nodes : $n\n";
+    $currentRecordId = $id;
     for (my $i = 0; $i < $n; $i++) {
        my $node = $nodes->item($i);
+       $updateNode = 0;
+       $currentNodeId = $nodeId;
        traverseNodeForLinks($node);
+       if ($updateNode) {
+         $xml = $node->toString;
+         $updatesth->bind_param(1,$xml);
+         $updatesth->bind_param(2,$id);
+         $updatesth->execute();
+         $writeCount++;
+         if ($writeCount > $commitCount) {
+           $dbh->commit();
+           $dbh->begin_work();
+           $writeCount = 0;
+         }
+         print STDERR "Updated record $id\n";
+       }
 
     }
   }
-
+  if ($writeCount > 0) {
+    $dbh->commit();
+    $dbh->begin_work();
+    $writeCount = 0;
+  }
 
 }
 sub testlink {
@@ -1135,8 +1164,11 @@ END
     print STDERR "Nodes : $n\n";
     for (my $i = 0; $i < $n; $i++) {
        my $node = $nodes->item($i);
+       $updateNode = 0;
        traverseNodeForLinks($node);
-
+       if ($updateNode) {
+         print $node->toString;
+       }
     }
 
 }
@@ -1222,7 +1254,9 @@ if (! $dryRun ) {
     $xrefsth = $dbh->prepare("insert into xref (word,bword,node) values (?,?,?)");
     $entrysth = $dbh->prepare("insert into entry (root,broot,word,itype,nodeId,bword,xml) values (?,?,?,?,?,?,?)");
     $rootsth = $dbh->prepare("insert into root (word,bword,letter) values (?,?,?)");
+    # these are for the set-links searches
     $lookupsth = $dbh->prepare("select id,bword,nodeId from entry where word = ?");
+    $dlookupsth = $dbh->prepare("select id,bword,nodeId from entry where word = ? or word = ?");
   };
   if ($@) {
     print STDERR "SQL prepare error:$@\n";
