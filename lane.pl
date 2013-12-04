@@ -29,12 +29,11 @@ my $verbose = 0;
 my $initdb  = 0;
 my $xmlFile = "";
 my $parseDir = "";
-my $dbName = "";
 my $commitCount = 1000;
 my $sqlSource = "";
 my $skipConvert = 0;
 my $debug = 0;
-my $dbname = "test.sqlite";
+my $dbname;
 my $overwrite = 0;        # overwrite existing db
 my $dryRun = 0;           # no db update
 my $textMargin = 30;
@@ -42,7 +41,9 @@ my $suppressFixups = 0;
 my $suppressContext = 0;
 my $doTest = "";
 my $logDir = "/tmp";
+my $linksMode = 0;
 GetOptions (
+            "set-links" => \$linksMode,
             "logdir=s" => \$logDir,
             "test=s" => \$doTest,
             "no-context"  => \$suppressContext,
@@ -90,6 +91,8 @@ my $dbErrorCount = 0;
 my $xrefsth;
 my $entrysth;
 my $rootsth;
+my $lookupsth;    # for 'select id from entry where word = ?
+my $dlookupsth;    # for 'select id from entry where word = ? or word = ?
 #
 
 my $currentNodeId;
@@ -437,7 +440,7 @@ sub writeEntry {
     $dbErrorCount++;
   }
   if ($writeCount > $commitCount) {
-    $dbh->commit();
+    $dbh->commit(); # reports 'commit ineffictive with Autocommit enabled
     $dbh->begin_work();
     $totalWriteCount += $writeCount;
     $writeCount = 0;
@@ -468,7 +471,7 @@ sub writeXref {
     $dbErrorCount++;
   }
   if ($writeCount > $commitCount) {
-    $dbh->commit();
+    $dbh->commit(); # reports 'commit ineffictive with Autocommit enabled
     $dbh->begin_work();
     $totalWriteCount += $writeCount;
     $writeCount = 0;
@@ -499,7 +502,7 @@ sub writeRoot {
     $dbErrorCount++;
   }
   if ($writeCount > $commitCount) {
-    $dbh->commit();
+    $dbh->commit(); # reports 'commit ineffictive with Autocommit enabled
     $dbh->begin_work();
     $totalWriteCount += $writeCount;
     $writeCount = 0;
@@ -926,7 +929,7 @@ sub openDb {
     exit 1;
   }
   else {
-    $verbose && print $plog "Opened db $db\n";
+    $verbose && print STDERR "Opened db $db\n";
   }
   $dbh->{AutoCommit} = 1;
   $dbh->begin_work;
@@ -964,14 +967,174 @@ sub initialiseDb {
     if (! $sth->execute()) {
       print STDERR "Error executing init SQL:$line" . $dbh->errstr();
       $ok = 0;
+    }
   }
-}
- if ($ok) {
-   $verbose && print $plog "DB initialised OK\n";
- }
+  if ($ok) {
+   $verbose && print STDERR "DB initialised OK\n";
+  }
   $dbh->disconnect;
 }
+################################################################
+# these two subroutines traverse the node converting all text
+# nodes whose parent has lang="ar"
+#
+################################################################
+sub setLinksForNode {
+  my $node = shift;
+  my $nodeName;
+  my $parentName;
+  my $skip = 0;
 
+  $nodeName =  $node->getNodeName;
+  my $parentNode = $node->getParentNode;
+
+  # going to skip entyfree and any child nodes of <form>
+  if ($nodeName eq "entryfree") {
+    $skip = 1;
+  }
+  while($parentNode && ! $skip) {
+    $parentName = $parentNode->getNodeName;
+    if ($parentName eq "form") {
+      $skip = 1;
+    }
+    $parentNode = $parentNode->getParentNode;
+  }
+  print STDERR sprintf "[%d]<%s><%s>\n",$skip,$parentName,$nodeName;
+  return unless ! $skip;
+  #  print "$nodeName\n";
+  my $attr = $node->getAttributeNode("lang");
+  if ($attr && ($attr->getValue eq "ar")) {
+    if ($node->hasChildNodes) {
+      my $textNode = $node->getFirstChild;
+      if ($textNode->getNodeType == TEXT_NODE) {
+        my $text = $textNode->getNodeValue;
+        ## lookup the word
+        $text = convertString($text);
+        $lookupsth->bind_param(1,$text);
+        my $ret = $lookupsth->execute();
+        print STDERR "Lookup:[$text]\n";
+        if ($ret) {
+          my ($id,$bword,$nodeId) = $lookupsth->fetchrow_array;
+          if ($id) {
+            print STDERR "Found at [$id][$bword][$nodeId]\n";
+            # wrap entry in <a href="#$id">...</text>
+            # and update xml
+          } else {
+            $dlookupsth->bind_param(1,$text);
+            $text .= chr(0x64c);
+            print STDERR "Lookup:[$text]\n";
+            $dlookupsth->bind_param(2,$text);
+            if ($dlookupsth->execute()) {
+              ($id,$bword,$nodeId) = $dlookupsth->fetchrow_array;
+              if ($id) {
+                print STDERR "Found at [$id][$bword][$nodeId]\n";
+                # wrap entry in <a href="#$id">...</text>
+                # and update xml
+              }
+            }
+          }
+          #
+          #
+          #
+          if ($id) {
+            print STDERR "Insert link to record id=$id\n";
+          }
+        }
+      } else {
+        print $plog "Parse warning 2: node <$nodeName> has lang=ar but no text\n";
+        $genWarning++;
+      }
+    }
+  }
+}
+################################################################
+#
+#
+################################################################
+sub traverseNodeForLinks {
+  my $node = shift;
+
+  while ($node) {
+    if ($node->getNodeType == ELEMENT_NODE) {
+      setLinksForNode($node);
+    }
+    if ($node->hasChildNodes) {
+      traverseNodeForLinks($node->getFirstChild);
+    }
+    $node = $node->getNextSibling;
+  }
+}
+#############################################################
+#
+#
+############################################################
+sub setLinks {
+  my $sth;
+  my $parser = new XML::DOM::Parser;
+
+  $writeCount = 0;
+  $sth = $dbh->prepare("select * from entry");
+  my $entries = $dbh->selectall_arrayref("SELECT id,root,broot,word,bword,nodeId,xml from entry where id < 10");
+  foreach my $row (@$entries) {
+    my ($id, $root,$broot,$word,$bword,$node,$xml) = @$row;
+    print STDERR "$bword\n";
+#    print STDERR "$xml";
+    my $doc = $parser->parse($xml);
+    my $nodes = $doc->getElementsByTagName ("entryFree");
+    my $n = $nodes->getLength;
+    print STDERR "Nodes : $n\n";
+    for (my $i = 0; $i < $n; $i++) {
+       my $node = $nodes->item($i);
+       traverseNodeForLinks($node);
+
+    }
+  }
+
+
+}
+sub testlink {
+
+  my $xml = <<'END';
+<entryFree id="n4889" key="juw^o$uw$N" type="main">
+   <form>
+                     <orth orig="" extent="full" lang="ar">juw^o$uw$N</orth>
+                     <orth extent="full" lang="ar">*</orth>
+                  </form> The <hi rend="ital" TEIform="hi">breast,</hi> or <hi rend="ital" TEIform="hi">chest;</hi> (S, A, K;) as also ↓
+      <orth type="arrow" lang="ar">jaA^o$N</orth> and ↓
+      <orth type="arrow" lang="ar">juw^o$N</orth>: (A:) or <hi rend="ital" TEIform="hi">its</hi>
+                  <foreign lang="ar" TEIform="foreign">Hayozuwm</foreign>, q. v. (Ibn-'Abbád, K.) ―         -b2-  The <hi rend="ital" TEIform="hi">forepart</hi> (<foreign lang="ar" TEIform="foreign">Sador</foreign>) of the night; accord. to which explanation it is tropical: or <hi rend="ital" TEIform="hi">what is between the beginning and the third</hi> thereof: or <hi rend="ital" TEIform="hi">a while</hi> thereof: (TA:) or <hi rend="ital" TEIform="hi">a portion</hi> thereof; (Lh, K;) and of people. (K.)       -A2-  Also A <hi rend="ital" TEIform="hi">thick,</hi> or <hi rend="ital" TEIform="hi">gross,</hi> or <hi rend="ital" TEIform="hi">coarse,</hi> man. (Ibn- 'Abbád, K.)   </entryFree>
+END
+
+  openDb("latest.sqlite");
+  #
+  # this doesn't catch the errors, so if file exists and tables are not right it will crash
+  #
+  eval {
+    $xrefsth = $dbh->prepare("insert into xref (word,bword,node) values (?,?,?)");
+    $entrysth = $dbh->prepare("insert into entry (root,broot,word,itype,nodeId,bword,xml) values (?,?,?,?,?,?,?)");
+    $rootsth = $dbh->prepare("insert into root (word,bword,letter) values (?,?,?)");
+    $lookupsth = $dbh->prepare("select id,bword,nodeId from entry where word = ?");
+    $dlookupsth = $dbh->prepare("select id,bword,nodeId from entry where word = ? or word = ?");
+  };
+  if ($@) {
+    print STDERR "SQL prepare error:$@\n";
+    print STDERR "DB updates disabled\n";
+    $dryRun = 1;
+  }
+
+  my $parser = new XML::DOM::Parser;
+  my $doc = $parser->parse($xml);
+
+    my $nodes = $doc->getElementsByTagName ("entryFree");
+    my $n = $nodes->getLength;
+    print STDERR "Nodes : $n\n";
+    for (my $i = 0; $i < $n; $i++) {
+       my $node = $nodes->item($i);
+       traverseNodeForLinks($node);
+
+    }
+
+}
 #############################################################
 #
 #
@@ -993,7 +1156,8 @@ sub runTest {
   my %tests = ( errs => \&testErrs,
                 xml =>  sub { $dryRun = 1;parseFile("./test/test_j0.xml");},
                 logs => sub { openLogs("./xml/j0.xml"); },
-                dir  => sub { $dryRun = 1;parseDirectory("./testdir");}
+                dir  => sub { $dryRun = 1;parseDirectory("./testdir");},
+                link => sub { testlink();}
               );
 
   if (exists $tests{$fn} ) {
@@ -1009,9 +1173,9 @@ sub runTest {
 # MAIN
 #
 ############################################################
+
 if ($doTest) {
   runTest($doTest);
-
 }
 my $sql;
 if ($sqlSource) {
@@ -1038,6 +1202,10 @@ if ($initdb) {
 
 }
 if (! $dryRun ) {
+  if ( ! $dbname ) {
+    print STDERR "No database name supplied\n";
+    exit 1;
+  }
   if ( ! -e $dbname ) {
     initialiseDb($dbname,$sql);
   }
@@ -1049,6 +1217,7 @@ if (! $dryRun ) {
     $xrefsth = $dbh->prepare("insert into xref (word,bword,node) values (?,?,?)");
     $entrysth = $dbh->prepare("insert into entry (root,broot,word,itype,nodeId,bword,xml) values (?,?,?,?,?,?,?)");
     $rootsth = $dbh->prepare("insert into root (word,bword,letter) values (?,?,?)");
+    $lookupsth = $dbh->prepare("select id,bword,nodeId from entry where word = ?");
   };
   if ($@) {
     print STDERR "SQL prepare error:$@\n";
@@ -1069,6 +1238,9 @@ elsif ($parseDir ) {
     exit 1;
   }
   parseDirectory($parseDir);
+}
+elsif ($linksMode) {
+ setLinks() ;
 }
 #convertString("ja Oxdr sthwmn");
 
