@@ -1,8 +1,8 @@
 #!/usr/bin/perl -w
 use strict;
 use POSIX;
-use XML::DOM;
-use XML::Parser;
+use XML::LibXML;
+#use XML::Parser;
 use Encode;
 use utf8;
 use DBI;
@@ -302,32 +302,34 @@ sub processForm {
   my $name;
 
 
-  my $attrs = $formNode->getAttributes;
-  if ($attrs->getLength > 0) {
+  my @attrs = $formNode->attributes;
+  if ($#attrs > 0) {
     if ($debug) {
       print $dlog "Node $currentNodeId, <form> with attibutes:\n";
       print $dlog ">>>\n" . $formNode->toString . "\n<<<\n";
     }
     $formWithAttributes++;
-    my $n = $attrs->getNamedItem("n");
-    if ($n) {
-      my $v = $n->getNodeValue;
-      if ($v eq "infl") {
-        # do something with it?
-      } elsif ( $v ) {
-        $debug && print $dlog "<form> with non-infl type: $v\n";
+    for (my $i=0;$i < $#attrs;$i++) {
+      my $n = $attrs[$i];
+      if ($n->nodeName eq "n") {
+        my $v = $n->nodeValue;
+        if ($v eq "infl") {
+          # do something with it?
+        } elsif ( $v ) {
+          $debug && print $dlog "<form> with non-infl type: $v\n";
+        }
       }
     }
   }
   my $child = $formNode->getFirstChild;
   while ($child) {
-    #    print "\t\t" . $child->getNodeName . "\n";
-    if ($child->getNodeType == ELEMENT_NODE) {
-      $name = $child->getNodeName;
+    #    print "\t\t" . $child->nodeName . "\n";
+    if ($child->nodeType == XML_ELEMENT_NODE) {
+      $name = $child->nodeName;
       if ($name eq "itype") {
         my $textNode = $child->getFirstChild;
-        if ($textNode->getNodeType == TEXT_NODE) {
-          my $t = $textNode->getNodeValue;
+        if ($textNode->nodeType == XML_TEXT_NODE) {
+          my $t = $textNode->nodeValue;
           if ($t) {
             $currentItype = $t;
           }
@@ -335,8 +337,8 @@ sub processForm {
       } elsif ($name eq "orth") {
         if ($child->hasChildNodes) {
           my $textNode = $child->getFirstChild;
-          if ($textNode->getNodeType == TEXT_NODE) {
-            my $t = $textNode->getNodeValue;
+          if ($textNode->nodeType == XML_TEXT_NODE) {
+            my $t = $textNode->nodeValue;
             #            print STDERR "Checking orth/itype ---->[$currentWord][$currentItype][$t]\n";
             if ($t) {
               # this seems to be where key is the same as the numeric itype value
@@ -381,7 +383,7 @@ sub processNode {
   my $node = shift;
   my $nodeName;
 
-  $nodeName =  $node->getNodeName;
+  $nodeName =  $node->nodeName;
   if ($nodeName eq "form") {
     processForm($node);
   }
@@ -396,7 +398,7 @@ sub traverseNode {
   my $node = shift;
 
   while ($node) {
-    if ($node->getNodeType == ELEMENT_NODE) {
+    if ($node->nodeType == XML_ELEMENT_NODE) {
       processNode($node);
     }
     if ($node->hasChildNodes) {
@@ -517,16 +519,16 @@ sub convertNode {
   my $node = shift;
   my $nodeName;
 
-  $nodeName =  $node->getNodeName;
+  $nodeName =  $node->nodeName;
   #  print "$nodeName\n";
   my $attr = $node->getAttributeNode("lang");
   if ($attr && ($attr->getValue eq "ar")) {
     if ($node->hasChildNodes) {
       my $textNode = $node->getFirstChild;
-      if ($textNode->getNodeType == TEXT_NODE) {
-        my $text = $textNode->getNodeValue;
+      if ($textNode->nodeType == XML_TEXT_NODE) {
+        my $text = $textNode->nodeValue;
         my $str = convertString($text,$nodeName);
-        $textNode->setNodeValue($str);
+        $textNode->setData($str);
         #
         # write xref record using: $currentWord,$currentNodeId,$text,$str
         #
@@ -546,7 +548,7 @@ sub traverseAndConvertNode {
   my $node = shift;
 
   while ($node) {
-    if ($node->getNodeType == ELEMENT_NODE) {
+    if ($node->nodeType == XML_ELEMENT_NODE) {
       convertNode($node);
     }
     if ($node->hasChildNodes) {
@@ -562,7 +564,7 @@ sub traverseAndConvertNode {
 sub processRoot {
   my $node = shift;
   my $entries = $node->getElementsByTagName("entryFree");
-  my $entryCount = $entries->getLength;
+  my $entryCount = $entries->size();
   my $idAttr;
   my $keyAttr;
   my $key;
@@ -578,7 +580,7 @@ sub processRoot {
   for (my $i=0;$i < $entryCount;$i++) {
     my $entry = $entries->item($i);
     $currentText = $entry->toString;
-    #    print sprintf "Processing entryFree %d [ %s  ]\n",$i,$entry->getNodeName;
+    #    print sprintf "Processing entryFree %d [ %s  ]\n",$i,$entry->nodeName;
     my $id;
     my $key;
     my $ar_key;
@@ -593,8 +595,8 @@ sub processRoot {
       push @currentStatus,"-";
     }
     my $textNode = $entry->getFirstChild;
-    if ($textNode->getNodeType == TEXT_NODE) {
-      my $text = $textNode->getNodeValue;
+    if ($textNode->nodeType == XML_TEXT_NODE) {
+      my $text = $textNode->nodeValue;
       if (($text =~ /see\s+supplement/i) && ($entryCount == 1)) {
         $skipRoot = 1;
         $skipRootCount++;
@@ -657,7 +659,7 @@ sub processRoot {
           my $xml;
           if (! $skipConvert ) {
             my $clone = $entry->cloneNode(1);
-            if ($clone->getNodeType == ELEMENT_NODE) {
+            if ($clone->nodeType == XML_ELEMENT_NODE) {
               traverseAndConvertNode($clone);
               $clone->setAttribute("key",convertString($currentWord,"word"));
               $xml =  $clone->toString;
@@ -724,14 +726,15 @@ sub parseFile {
   my $fileName = shift;
   my $start = time();
 #  print STDERR "Parsing file: $fileName\n";
+  my $parser = XML::LibXML->new;
 
   openLogs($fileName);
-  my $parser = new XML::DOM::Parser;
-  my $doc = $parser->parsefile ($fileName);
+#  my $parser = new XML::DOM::Parser;
+  my $doc = $parser->parse_file ($fileName);
 
   # print all HREF attributes of all CODEBASE elements
   my $nodes = $doc->getElementsByTagName ("div1");
-  my $n = $nodes->getLength;
+  my $n = $nodes->size();
 
   for (my $i = 0; $i < $n; $i++) {
 
@@ -745,7 +748,7 @@ sub parseFile {
       }
     }
     my $roots = $div1Node->getElementsByTagName("div2");
-    my $rootCount = $roots->getLength;
+    my $rootCount = $roots->size();
     for (my $j=0;$j < $rootCount;$j++) {
       my $div2Node = $roots->item($j);
       if ($div2Node->getAttributeNode("type")->getValue() eq "root") {
@@ -769,7 +772,7 @@ sub parseFile {
   print OUT $str;
   close OUT;
 
-  $doc->dispose;
+#  $doc->dispose;
   if ( ! $dryRun ) {
     $dbh->commit();
   }
@@ -985,7 +988,7 @@ sub setLinksForNode {
   my $parentName;
   my $skip = 0;
 
-  $nodeName =  $node->getNodeName;
+  $nodeName =  $node->nodeName;
   my $parentNode = $node->getParentNode;
 
   # going to skip entyfree and any child nodes of <form>
@@ -993,7 +996,7 @@ sub setLinksForNode {
     $skip = 1;
   }
   while($parentNode && ! $skip) {
-    $parentName = $parentNode->getNodeName;
+    $parentName = $parentNode->nodeName;
     if ($parentName eq "form") {
       $skip = 1;
     }
@@ -1006,8 +1009,8 @@ sub setLinksForNode {
   if ($attr && ($attr->getValue eq "ar")) {
     if ($node->hasChildNodes) {
       my $textNode = $node->getFirstChild;
-      if ($textNode->getNodeType == TEXT_NODE) {
-        my $text = $textNode->getNodeValue;
+      if ($textNode->nodeType == XML_TEXT_NODE) {
+        my $text = $textNode->nodeValue;
         ## lookup the word
         $text = convertString($text);
         $lookupsth->bind_param(1,$text);
@@ -1055,7 +1058,7 @@ sub traverseNodeForLinks {
   my $node = shift;
 
   while ($node) {
-    if ($node->getNodeType == ELEMENT_NODE) {
+    if ($node->nodeType == XML_ELEMENT_NODE) {
       setLinksForNode($node);
     }
     if ($node->hasChildNodes) {
@@ -1070,7 +1073,8 @@ sub traverseNodeForLinks {
 ############################################################
 sub setLinks {
   my $sth;
-  my $parser = new XML::DOM::Parser;
+  my $parser = XML::LibXML->new;
+#  my $parser = new XML::DOM::Parser;
 
   $writeCount = 0;
   $sth = $dbh->prepare("select * from entry");
@@ -1081,7 +1085,7 @@ sub setLinks {
 #    print STDERR "$xml";
     my $doc = $parser->parse($xml);
     my $nodes = $doc->getElementsByTagName ("entryFree");
-    my $n = $nodes->getLength;
+    my $n = $nodes->size();
     print STDERR "Nodes : $n\n";
     for (my $i = 0; $i < $n; $i++) {
        my $node = $nodes->item($i);
@@ -1122,11 +1126,12 @@ END
     $dryRun = 1;
   }
 
-  my $parser = new XML::DOM::Parser;
-  my $doc = $parser->parse($xml);
+  my $parser = XML::LibXML->new;
+#  my $parser = new XML::DOM::Parser;
+  my $doc = $parser->parse_string($xml);
 
     my $nodes = $doc->getElementsByTagName ("entryFree");
-    my $n = $nodes->getLength;
+    my $n = $nodes->size();
     print STDERR "Nodes : $n\n";
     for (my $i = 0; $i < $n; $i++) {
        my $node = $nodes->item($i);
