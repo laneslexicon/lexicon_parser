@@ -22,6 +22,7 @@ my $blog;                       # buckwalter conversion log handle
 my $plog;   # parse log for diagnostic output;
 my $elog;   # error log
 my $dlog;
+my $llog;   # links log
 #
 # cmd line args
 #
@@ -81,6 +82,7 @@ my $genWarning = 0;
 my $elapsedTime = 0;
 my $conversionErrors = 0;
 my $adjustedConversions = 0;
+my $linkCount = 0;
 #
 #
 my $dbh = 0;
@@ -92,7 +94,6 @@ my $xrefsth;
 my $entrysth;
 my $rootsth;
 my $lookupsth;    # for 'select id from entry where word = ?
-my $dlookupsth;    # for 'select id from entry where word = ? or word = ?
 my $updateNode;    # set links uses to check if the node xml needs saving
 #
 
@@ -105,6 +106,8 @@ my @currentForms;
 my @currentStatus;
 my $currentRecordId;
 my $currentText;
+my @links;
+
 sub testConvertString {
   my $t = shift;
   my $s = $t;
@@ -712,12 +715,15 @@ sub openLogs {
   my $parselog = File::Spec->catfile($logDir,$base . "_parse.log");
   my $convlog = File::Spec->catfile($logDir,$base . "_conv.log");
   my $debuglog = File::Spec->catfile($logDir,$base . "_debug.log");
+
+
   open($blog,">:encoding(UTF8)",$convlog);
   print $blog "Fixed,Error no,Node,Root,Word,Type,Err,Pos,Char,In,Out\n";
 
   open($plog,">:encoding(UTF8)",$parselog);
   open($elog,">:encoding(UTF8)",$errlog);
   $debug &&  open($dlog,">:encoding(UTF8)",$debuglog);
+
 
 }
 ################################################################
@@ -1026,35 +1032,36 @@ sub setLinksForNode {
       $lookupsth->execute();
       #        print STDERR "Lookup:[$text]\n";
       my ($id,$bword,$nodeId) = $lookupsth->fetchrow_array;
-      if ($id) {
-        print STDERR "Found at [$text] at [$id][$bword][$nodeId]\n";
-      } else {
+      if (!$id) {
         #
         # some have dammatan forms so check for these
         #
-        $dlookupsth->bind_param(1,$text);
-        $text .= chr(0x64c);
-        #            print STDERR "Lookup:[$text]\n";
-        $dlookupsth->bind_param(2,$text);
-        if ($dlookupsth->execute()) {
-          ($id,$bword,$nodeId) = $dlookupsth->fetchrow_array;
-          if ($id) {
-            print STDERR "Found at [$id][$bword][$nodeId]\n";
-          }
+#        $dlookupsth->bind_param(1,$text);
+        $lookupsth->bind_param(1,$text . chr(0x64c));
+        if ($lookupsth->execute()) {
+          ($id,$bword,$nodeId) = $lookupsth->fetchrow_array;
+#          if ($id) {
+#            print STDERR "Found at [$id][$bword][$nodeId]\n";
+#          }
+#        }
         }
       }
       #
       #  check the record we're linking to is not this one
       #
       if ($id && ($id != $currentRecordId)) {
-        $node->setAttribute("goto",$id);
-        $node->setAttribute("nodeid",$nodeId);
-        $updateNode = 1;
-        print STDERR "Insert link to record id=$id\n";
+        if ($nodeId) {
+          $linkCount++;
+          $node->setAttribute("goto",$id);
+          $node->setAttribute("nodeid",$nodeId);
+          $node->setAttribute("linkid",$linkCount);
+          $updateNode = 1;
+          push @links, { id => $id,node => $nodeId,bword => $bword,word => $text,linkid => $linkCount};
+        }
+        else {
+          print STDERR "Record id:$id has no nodeid\n";
+        }
       }
-    } else {
-      print $plog "Parse warning 2: node <$nodeName> has lang=ar but no text\n";
-      $genWarning++;
     }
   }
 }
@@ -1086,34 +1093,37 @@ sub setLinks {
 
   $writeCount = 0;
   $sth = $dbh->prepare("select * from entry");
-  my $entries = $dbh->selectall_arrayref("SELECT id,root,broot,word,bword,nodeId,xml from entry where id < 20");
+  my $entries = $dbh->selectall_arrayref("SELECT id,root,broot,word,bword,nodeId,xml from entry");
   my $updatesth = $dbh->prepare('update entry set xml = ? where id = ?');
   foreach my $row (@$entries) {
     my ($id, $root,$broot,$word,$bword,$nodeId,$xml) = @$row;
-    print STDERR "$bword\n";
-#    print STDERR "$xml";
     my $doc = $parser->parse_string($xml);
     my $nodes = $doc->getElementsByTagName ("entryFree");
     my $n = $nodes->size();
-    print STDERR "Nodes : $n\n";
     $currentRecordId = $id;
     for (my $i = 0; $i < $n; $i++) {
+      $#links = -1;                          # clear old links
        my $node = $nodes->item($i);
        $updateNode = 0;
        $currentNodeId = $nodeId;
+       $currentWord = $word;
        traverseNodeForLinks($node);
        if ($updateNode) {
          $xml = $node->toString;
          $updatesth->bind_param(1,$xml);
          $updatesth->bind_param(2,$id);
          $updatesth->execute();
+
          $writeCount++;
          if ($writeCount > $commitCount) {
            $dbh->commit();
            $dbh->begin_work();
            $writeCount = 0;
          }
-         print STDERR "Updated record $id\n";
+         print $llog sprintf "Node:[%d][%s][%s][%s]\n",$id,$nodeId,$word,$bword;
+         foreach my $link (@links) {
+           print $llog sprintf "[%d]    [%s]  to  [%d][%s] [%s]\n",$link->{linkid},$link->{word},$link->{id},$link->{node},$link->{bword};
+         }
        }
 
     }
@@ -1147,7 +1157,6 @@ END
     $entrysth = $dbh->prepare("insert into entry (root,broot,word,itype,nodeId,bword,xml) values (?,?,?,?,?,?,?)");
     $rootsth = $dbh->prepare("insert into root (word,bword,letter) values (?,?,?)");
     $lookupsth = $dbh->prepare("select id,bword,nodeId from entry where word = ?");
-    $dlookupsth = $dbh->prepare("select id,bword,nodeId from entry where word = ? or word = ?");
   };
   if ($@) {
     print STDERR "SQL prepare error:$@\n";
@@ -1256,7 +1265,6 @@ if (! $dryRun ) {
     $rootsth = $dbh->prepare("insert into root (word,bword,letter) values (?,?,?)");
     # these are for the set-links searches
     $lookupsth = $dbh->prepare("select id,bword,nodeId from entry where word = ?");
-    $dlookupsth = $dbh->prepare("select id,bword,nodeId from entry where word = ? or word = ?");
   };
   if ($@) {
     print STDERR "SQL prepare error:$@\n";
@@ -1279,7 +1287,9 @@ elsif ($parseDir ) {
   parseDirectory($parseDir);
 }
 elsif ($linksMode) {
- setLinks() ;
+  my $linklog = File::Spec->catfile($logDir,"link.log");
+  open($llog,">:encoding(UTF8)",$linklog);
+  setLinks() ;
 }
 #convertString("ja Oxdr sthwmn");
 
