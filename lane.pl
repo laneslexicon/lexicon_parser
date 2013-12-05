@@ -43,6 +43,7 @@ my $suppressContext = 0;
 my $doTest = "";
 my $logDir = "/tmp";
 my $linksMode = 0;
+my $convertMode = 0;
 GetOptions (
             "set-links" => \$linksMode,
             "logdir=s" => \$logDir,
@@ -383,7 +384,6 @@ sub processForm {
 #
 #
 ################################################################
-
 sub processNode {
   my $node = shift;
   my $nodeName;
@@ -398,13 +398,20 @@ sub processNode {
 #
 #
 ################################################################
-
 sub traverseNode {
   my $node = shift;
 
   while ($node) {
     if ($node->nodeType == XML_ELEMENT_NODE) {
-      processNode($node);
+      if ($linksMode) {
+        setLinksForNode($node);
+      }
+      elsif ($convertMode) {
+        convertNode($node);
+      }
+      else {
+        processNode($node);
+      }
     }
     if ($node->hasChildNodes) {
       traverseNode($node->getFirstChild);
@@ -549,23 +556,6 @@ sub convertNode {
 #
 #
 ################################################################
-sub traverseAndConvertNode {
-  my $node = shift;
-
-  while ($node) {
-    if ($node->nodeType == XML_ELEMENT_NODE) {
-      convertNode($node);
-    }
-    if ($node->hasChildNodes) {
-      traverseAndConvertNode($node->getFirstChild);
-    }
-    $node = $node->getNextSibling;
-  }
-}
-################################################################
-#
-#
-################################################################
 sub processRoot {
   my $node = shift;
   my $entries = $node->getElementsByTagName("entryFree");
@@ -631,6 +621,7 @@ sub processRoot {
       }
       if ($id ) {
         $currentNodeId = $id;
+        $convertMode = 0;
         traverseNode($entry->getFirstChild);
         my $numeric = " ";
         if ($currentWord =~ /3/) {
@@ -665,7 +656,8 @@ sub processRoot {
           if (! $skipConvert ) {
             my $clone = $entry->cloneNode(1);
             if ($clone->nodeType == XML_ELEMENT_NODE) {
-              traverseAndConvertNode($clone);
+              $convertMode = 1;
+              traverseNode($clone);
               $clone->setAttribute("key",convertString($currentWord,"word"));
               $xml =  $clone->toString;
             }
@@ -1065,23 +1057,6 @@ sub setLinksForNode {
     }
   }
 }
-################################################################
-#
-#
-################################################################
-sub traverseNodeForLinks {
-  my $node = shift;
-
-  while ($node) {
-    if ($node->nodeType == XML_ELEMENT_NODE) {
-      setLinksForNode($node);
-    }
-    if ($node->hasChildNodes) {
-      traverseNodeForLinks($node->getFirstChild);
-    }
-    $node = $node->getNextSibling;
-  }
-}
 #############################################################
 #
 #
@@ -1107,7 +1082,8 @@ sub setLinks {
        $updateNode = 0;
        $currentNodeId = $nodeId;
        $currentWord = $word;
-       traverseNodeForLinks($node);
+#       traverseNodeForLinks($node);
+       traverseNode($node);
        if ($updateNode) {
          $xml = $node->toString;
          $updatesth->bind_param(1,$xml);
@@ -1174,7 +1150,7 @@ END
     for (my $i = 0; $i < $n; $i++) {
        my $node = $nodes->item($i);
        $updateNode = 0;
-       traverseNodeForLinks($node);
+       traverseNode($node);
        if ($updateNode) {
          print $node->toString;
        }
