@@ -44,7 +44,12 @@ my $doTest = "";
 my $logDir = "/tmp";
 my $linksMode = 0;
 my $convertMode = 0;
+my $tagsMode = 0;
+
+my %tags;
+
 GetOptions (
+            "scan-tags" => \$tagsMode,
             "set-links" => \$linksMode,
             "logdir=s" => \$logDir,
             "test=s" => \$doTest,
@@ -403,7 +408,10 @@ sub traverseNode {
 
   while ($node) {
     if ($node->nodeType == XML_ELEMENT_NODE) {
-      if ($linksMode) {
+      if ($tagsMode) {
+        analyzeTags($node);
+      }
+      elsif ($linksMode) {
         setLinksForNode($node);
       }
       elsif ($convertMode) {
@@ -977,6 +985,97 @@ sub initialiseDb {
   }
   $dbh->disconnect;
 }
+
+################################################################
+#
+#
+################################################################
+sub analyzeTags {
+  my $node = shift;
+  my $nodeName;
+
+  my $k;
+  my $v;
+  $nodeName =  $node->nodeName;
+  if (! exists $tags{$nodeName}) {
+    my %attributes;
+    $tags{$nodeName} = { count => 0, attr => \%attributes};
+  }
+  my $ats = $tags{$nodeName}->{attr};
+  my @attrs = $node->attributes();
+
+  foreach my $attr (@attrs) {
+    #  print $attr . "\n";
+    if ($attr =~ /^\s*(\w+)\s*=\s*"([^"]+)"\s*$/) {
+      $k = $1;
+      $v = $2;
+    } elsif ($attr =~ /^\s*(\w+)\s*=\s*""\s*$/) {
+      $k = $1;
+      $v = "\"\"";
+    } elsif ($attr =~ /^"([^"]+)"$/) {
+      $k = $1;
+      $v = "<none>";
+    } else {
+      $k = $attr
+    }
+    if (! exists $ats->{$k}) {
+      my %av;
+      $ats->{$k} = \%av;
+    }
+    if ($v) {
+      my $x = $ats->{$k};
+      $x->{$v} = 1;
+      $ats->{$k} = $x;
+    }
+  }
+  $tags{$nodeName}->{count} = $tags{$nodeName}->{count} + 1;
+  $tags{$nodeName}->{attr} = $ats;
+}
+#############################################################
+#
+#
+############################################################
+sub printStatsCsv {
+  foreach my $key (sort keys %tags ) {
+    print sprintf "%s,%d,,\n",$key,$tags{$key}->{count};
+    my $attr = $tags{$key}->{attr};
+    foreach my $key (sort keys %{$attr} ) {
+      my $c = scalar (keys %{$attr->{$key}});
+#      if ($key !~ /^(root|n|id|key|linkid|goto|nodeid)$/) {
+      if ($c < 5) {
+        print sprintf ",,%s,%s\n",$key,join ",",keys %{$attr->{$key}};
+      } else {
+        print sprintf ",,%s,%d items\n",$key,$c;#scalar (keys %{$attr->{$key}});
+      }
+    }
+  }
+}
+#############################################################
+#
+#
+############################################################
+sub scanTags {
+  my $sth;
+  my $parser = XML::LibXML->new;
+#  my $parser = new XML::DOM::Parser;
+
+  $writeCount = 0;
+  $sth = $dbh->prepare("select * from entry");
+  my $entries = $dbh->selectall_arrayref("SELECT id,root,broot,word,bword,nodeId,xml from entry");
+
+  foreach my $row (@$entries) {
+    my ($id, $root,$broot,$word,$bword,$nodeId,$xml) = @$row;
+    my $doc = $parser->parse_string($xml);
+    my $docroot = $doc->documentElement;
+    traverseNode($docroot);
+#    foreach my $child ($docroot->findnodes('entryFree')) {
+#      if ($child->nodeType == XML_ELEMENT_NODE) {
+#        traverseNode($child);
+#      }
+#    }
+  }
+  printStatsCsv();
+}
 ################################################################
 #
 #
@@ -1266,6 +1365,9 @@ elsif ($linksMode) {
   my $linklog = File::Spec->catfile($logDir,"link.log");
   open($llog,">:encoding(UTF8)",$linklog);
   setLinks() ;
+}
+elsif ($tagsMode) {
+  scanTags();
 }
 #convertString("ja Oxdr sthwmn");
 
