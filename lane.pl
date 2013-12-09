@@ -30,7 +30,7 @@ my $verbose = 0;
 my $initdb  = 0;
 my $xmlFile = "";
 my $parseDir = "";
-my $commitCount = 1000;
+my $commitCount = 5000;
 my $sqlSource = "";
 my $skipConvert = 0;
 my $debug = 0;
@@ -45,10 +45,14 @@ my $logDir = "/tmp";
 my $linksMode = 0;
 my $convertMode = 0;
 my $tagsMode = 0;
-
+my $arrowMode = 0;
 my %tags;
-
+#
+#   --dbname latest.sqlite --scan-arrows
+#          prints <orth type="arrow" lang="ar">...</orth> values
+#
 GetOptions (
+            "scan-arrows" => \$arrowMode,
             "scan-tags" => \$tagsMode,
             "set-links" => \$linksMode,
             "logdir=s" => \$logDir,
@@ -105,7 +109,9 @@ my $updateNode;    # set links uses to check if the node xml needs saving
 
 my $currentNodeId;
 my $currentRoot;
+my $currentBRoot;
 my $currentWord;
+my $currentBWord;
 my $currentItype;
 my $currentLetter;
 my @currentForms;
@@ -408,7 +414,10 @@ sub traverseNode {
 
   while ($node) {
     if ($node->nodeType == XML_ELEMENT_NODE) {
-      if ($tagsMode) {
+      if ($arrowMode) {
+        checkArrow($node);
+      }
+      elsif ($tagsMode) {
         analyzeTags($node);
       }
       elsif ($linksMode) {
@@ -463,7 +472,7 @@ sub writeEntry {
   }
   if ($writeCount > $commitCount) {
     $dbh->commit(); # reports 'commit ineffictive with Autocommit enabled
-    $dbh->begin_work();
+#    $dbh->begin_work();
     $totalWriteCount += $writeCount;
     $writeCount = 0;
   }
@@ -494,21 +503,22 @@ sub writeXref {
   }
   if ($writeCount > $commitCount) {
     $dbh->commit(); # reports 'commit ineffictive with Autocommit enabled
-    $dbh->begin_work();
+#    $dbh->begin_work();
     $totalWriteCount += $writeCount;
     $writeCount = 0;
   }
 }
 ######################################################################
-# $dbh->prepare("insert into root (word,bword,letter) values (?,?,?)");
+# $dbh->prepare("insert into root (word,bword,letter,bletter) values (?,?,?)");
 #
 #####################################################################
 sub writeRoot {
   my $word = shift;
   my $bword = shift;
-  my $letter = shift;
+  my $bletter = shift;
 
-  $debug && print $dlog "ROOT write: [$word][$bword][$letter]\n";
+  my $letter = convertString($bletter);
+  $debug && print $dlog "ROOT write: [$word][$bword][$letter][$bletter]\n";
 
   if ($dryRun) {
     $rootDbCount++;
@@ -517,6 +527,7 @@ sub writeRoot {
   $rootsth->bind_param(1,$word);
   $rootsth->bind_param(2,$bword);
   $rootsth->bind_param(3,$letter);
+  $rootsth->bind_param(4,$bletter);
   if ($rootsth->execute()) {
     $rootDbCount++;
     $writeCount++;
@@ -525,7 +536,7 @@ sub writeRoot {
   }
   if ($writeCount > $commitCount) {
     $dbh->commit(); # reports 'commit ineffictive with Autocommit enabled
-    $dbh->begin_work();
+#    $dbh->begin_work();
     $totalWriteCount += $writeCount;
     $writeCount = 0;
   }
@@ -704,13 +715,15 @@ sub openLogs {
 
   my ($base,$p,$suffix) = fileparse($filename,'\..*');
 
-  if (! $base ) {
-    $base = strftime "%F-%T", localtime $^T;
-    $base =~ s/:/-/g;
-  }
+  # if (! $base ) {
+  #   $base = strftime "%F-%T", localtime $^T;
+  #   $base =~ s/:/-/g;
+  # }
   if ( ! -d $logDir ) {
     $logDir = ".";
   }
+  my $dt = POSIX::strftime "%y%m%d", localtime;
+  $base = $dt . "_" . $base;
   my $errlog = File::Spec->catfile($logDir,$base . "_err.log");
   my $parselog = File::Spec->catfile($logDir,$base . "_parse.log");
   my $convlog = File::Spec->catfile($logDir,$base . "_conv.log");
@@ -886,6 +899,7 @@ id integer primary key,
 word text,
 bword text,
 letter text,
+bletter text,
 xml text
 );
 create TABLE itype (
@@ -942,8 +956,8 @@ sub openDb {
   else {
     $verbose && print STDERR "Opened db $db\n";
   }
-  $dbh->{AutoCommit} = 1;
-  $dbh->begin_work;
+  $dbh->{AutoCommit} = 0;
+#  $dbh->begin_work;
 }
 ################################################################
 #
@@ -1052,6 +1066,7 @@ sub printStatsCsv {
 }
 #############################################################
 #
+# does the tags analysis parsing xml of all entry records
 #
 ############################################################
 sub scanTags {
@@ -1075,6 +1090,77 @@ sub scanTags {
 #    }
   }
   printStatsCsv();
+}
+################################################################
+#
+#
+#
+################################################################
+sub checkArrow {
+  my $node = shift;
+
+  if ($node->nodeType != XML_ELEMENT_NODE) {
+    return;
+  }
+  if ($node->nodeName ne "orth") {
+    return;
+  }
+  my $attr = $node->getAttributeNode("type");
+  if (! $attr ) {
+    return;
+  }
+  if ($attr->getValue ne "arrow") {
+    return;
+  }
+  $attr = $node->getAttributeNode("lang");
+  if (! $attr || ($attr->getValue ne "ar")) {
+    return;
+  }
+  if ($node->hasChildNodes) {
+    my $textNode = $node->getFirstChild;
+    if ($textNode->nodeType == XML_TEXT_NODE) {
+      my $text = $textNode->nodeValue;
+
+      $lookupsth->bind_param(1,$text);
+      $lookupsth->execute();
+      my ($id,$bword,$nodeId) = $lookupsth->fetchrow_array;
+      my $ok = 0;
+      if ($id) {
+        $ok = 1;
+      }
+      else {
+        $nodeId = "";
+      }
+      print STDOUT sprintf "%d,%s,%s,%s,%s,%s,%s,%s\n",$ok,$currentNodeId,
+        decode("utf-8",$currentRoot),$currentBRoot,
+        decode("utf-8",$currentWord),$currentBWord,$text,$nodeId;
+    }
+  }
+}
+#############################################################
+#
+# does the tags analysis parsing xml of all entry records
+#
+############################################################
+sub scanArrow {
+  my $sth;
+  my $parser = XML::LibXML->new;
+#  my $parser = new XML::DOM::Parser;
+
+  $writeCount = 0;
+  my $entries = $dbh->selectall_arrayref("SELECT id,root,broot,word,bword,nodeId,xml from entry order by root");
+  print STDOUT "Found,In Node,Root,Buckwalter,Word,Buckwalter word,Arrow target,At NodeId\n";
+  foreach my $row (@$entries) {
+    my ($id, $root,$broot,$word,$bword,$nodeId,$xml) = @$row;
+    my $doc = $parser->parse_string($xml);
+    my $docroot = $doc->documentElement;
+    $currentNodeId = $nodeId;
+    $currentRoot = $root;
+    $currentBRoot = $broot;
+    $currentWord = $word;
+    $currentBWord = $bword;
+    traverseNode($docroot);
+  }
 }
 ################################################################
 #
@@ -1192,7 +1278,7 @@ sub setLinks {
          $writeCount++;
          if ($writeCount > $commitCount) {
            $dbh->commit();
-           $dbh->begin_work();
+#           $dbh->begin_work();
            $writeCount = 0;
          }
          print $llog sprintf "Node:[%d][%s][%s][%s]\n",$id,$nodeId,$word,$bword;
@@ -1205,7 +1291,7 @@ sub setLinks {
   }
   if ($writeCount > 0) {
     $dbh->commit();
-    $dbh->begin_work();
+#    $dbh->begin_work();
     $writeCount = 0;
   }
 
@@ -1230,7 +1316,7 @@ END
   eval {
     $xrefsth = $dbh->prepare("insert into xref (word,bword,node) values (?,?,?)");
     $entrysth = $dbh->prepare("insert into entry (root,broot,word,itype,nodeId,bword,xml) values (?,?,?,?,?,?,?)");
-    $rootsth = $dbh->prepare("insert into root (word,bword,letter) values (?,?,?)");
+    $rootsth = $dbh->prepare("insert into root (word,bword,letter,bletter) values (?,?,?,?)");
     $lookupsth = $dbh->prepare("select id,bword,nodeId from entry where word = ?");
   };
   if ($@) {
@@ -1260,6 +1346,19 @@ END
 #
 #
 ############################################################
+sub testEncoding {
+  my $entries = $dbh->selectall_arrayref("SELECT id,root,broot,word,bword,nodeId,xml from entry limit 20");
+
+  foreach my $row (@$entries) {
+    my ($id, $root,$broot,$word,$bword,$nodeId,$xml) = @$row;
+#    print STDOUT Encode::decode('UTF-8', $root); ## fuck!
+    print STDOUT sprintf "%s ===== %s ========== %s\n",$nodeId,decode("utf-8",$root),decode("utf-8",$word);
+  }
+}
+#############################################################
+#
+#
+############################################################
 sub testErrs {
   my @words = qw(jadoYBN jub~aA'N? A_ilaY *aAti raHolK kaA@lomaA=timi Hus~araA 1a2u3a);
   foreach my $word (@words) {
@@ -1278,7 +1377,8 @@ sub runTest {
                 xml =>  sub { $dryRun = 1;parseFile("./test/test_j0.xml");},
                 logs => sub { openLogs("./xml/j0.xml"); },
                 dir  => sub { $dryRun = 1;parseDirectory("./testdir");},
-                link => sub { testlink();}
+                link => sub { testlink();},
+                encoding => sub { testEncoding();}
               );
 
   if (exists $tests{$fn} ) {
@@ -1295,9 +1395,6 @@ sub runTest {
 #
 ############################################################
 
-if ($doTest) {
-  runTest($doTest);
-}
 my $sql;
 if ($sqlSource) {
   # get SQL source from file
@@ -1337,7 +1434,7 @@ if (! $dryRun ) {
   eval {
     $xrefsth = $dbh->prepare("insert into xref (word,bword,node) values (?,?,?)");
     $entrysth = $dbh->prepare("insert into entry (root,broot,word,itype,nodeId,bword,xml) values (?,?,?,?,?,?,?)");
-    $rootsth = $dbh->prepare("insert into root (word,bword,letter) values (?,?,?)");
+    $rootsth = $dbh->prepare("insert into root (word,bword,letter,bletter) values (?,?,?,?)");
     # these are for the set-links searches
     $lookupsth = $dbh->prepare("select id,bword,nodeId from entry where word = ?");
   };
@@ -1347,7 +1444,10 @@ if (! $dryRun ) {
     $dryRun = 1;
   }
 }
-if ($xmlFile) {
+if ($doTest) {
+  runTest($doTest);
+}
+elsif ($xmlFile) {
   if ( ! -e $xmlFile) {
     print STDERR "No such file: $xmlFile";
     exit 1;
@@ -1368,6 +1468,12 @@ elsif ($linksMode) {
 }
 elsif ($tagsMode) {
   scanTags();
+}
+elsif ($arrowMode) {
+  scanArrow();
+}
+else {
+  print "Nothing to do here\n";
 }
 #convertString("ja Oxdr sthwmn");
 
