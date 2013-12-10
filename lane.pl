@@ -88,6 +88,7 @@ my $skipRootCount = 0;
 my $xrefDbCount = 0;
 my $entryDbCount = 0;
 my $rootDbCount = 0;
+my $alternateDbCount = 0;
 my $genWarning = 0;
 my $elapsedTime = 0;
 my $conversionErrors = 0;
@@ -103,6 +104,7 @@ my $dbErrorCount = 0;
 my $xrefsth;
 my $entrysth;
 my $rootsth;
+my $alternatesth;
 my $lookupsth;    # for 'select id from entry where word = ?
 my $updateNode;    # set links uses to check if the node xml needs saving
 #
@@ -119,6 +121,8 @@ my @currentStatus;
 my $currentRecordId;
 my $currentText;
 my @links;
+my $supplement;
+my $currentFile;
 
 sub testConvertString {
   my $t = shift;
@@ -464,6 +468,9 @@ sub writeEntry {
   $entrysth->bind_param(5,$node);
   $entrysth->bind_param(6,$bword);
   $entrysth->bind_param(7,$xml);
+  $entrysth->bind_param(8,$supplement);
+  $entrysth->bind_param(9,$currentFile);
+
   if ($entrysth->execute()) {
     $entryDbCount++;
     $writeCount++;
@@ -516,9 +523,10 @@ sub writeRoot {
   my $word = shift;
   my $bword = shift;
   my $bletter = shift;
-
+  my $quasi = shift;
+  my $alternates = shift;
   my $letter = convertString($bletter);
-  $debug && print $dlog "ROOT write: [$word][$bword][$letter][$bletter]\n";
+  $debug && print $dlog "ROOT write: [$word][$bword][$letter][$bletter][$quasi][$alternates]\n";
 
   if ($dryRun) {
     $rootDbCount++;
@@ -528,8 +536,48 @@ sub writeRoot {
   $rootsth->bind_param(2,$bword);
   $rootsth->bind_param(3,$letter);
   $rootsth->bind_param(4,$bletter);
+  $rootsth->bind_param(5,$supplement);
+  $rootsth->bind_param(6,$quasi);
+  $rootsth->bind_param(7,$alternates);
   if ($rootsth->execute()) {
     $rootDbCount++;
+    $writeCount++;
+  } else {
+    $dbErrorCount++;
+  }
+  if ($writeCount > $commitCount) {
+    $dbh->commit(); # reports 'commit ineffictive with Autocommit enabled
+#    $dbh->begin_work();
+    $totalWriteCount += $writeCount;
+    $writeCount = 0;
+  }
+}
+######################################################################
+# $dbh->prepare("insert into root (word,bword,letter,bletter) values (?,?,?)");
+#
+#####################################################################
+sub writeAlternate {
+  my $word = shift;
+  my $bword = shift;
+  my $bletter = shift;
+  my $quasi = shift;
+  my $rootId = shift;
+  my $letter = convertString($bletter);
+  $debug && print $dlog "ALTERNATE write: [$word][$bword][$letter][$bletter][$quasi][$rootId]\n";
+
+  if ($dryRun) {
+    $alternateDbCount++;
+    return;
+  }
+  $alternatesth->bind_param(1,$word);
+  $alternatesth->bind_param(2,$bword);
+  $alternatesth->bind_param(3,$letter);
+  $alternatesth->bind_param(4,$bletter);
+  $alternatesth->bind_param(5,$supplement);
+  $alternatesth->bind_param(6,$quasi);
+  $alternatesth->bind_param(7,$rootId);
+  if ($alternatesth->execute()) {
+    $alternateDbCount++;
     $writeCount++;
   } else {
     $dbErrorCount++;
@@ -583,13 +631,50 @@ sub processRoot {
   my $keyAttr;
   my $key;
   my $skipRoot;
+  my $quasiRoot = 0;
+  my @alternates;
   $currentText = $node->toString;
-  print $plog sprintf "[Root=%s][Entries=%d][TextLength=%d]\n",$currentRoot,$entryCount,length $currentText;
+
+  if ($currentRoot =~ /^Quasi/i) {
+    $quasiRoot = 1;
+    $currentRoot =~ s/^Quasi\s*//;
+  }
+  # this is for t0.xml
+  #   <div2 n="Quasi tqY: or, accord. to some, tqw" type="root" org="uniform"
+  #
+  if ($currentRoot =~ /accord\. to some/) {
+    $currentRoot =~ "tqY and tqw";
+  }
+  #
+  # do multiword roots which are in these forms
+  #     xxxx yyyy zzzz
+  #     xxxx and yyyy
+  #     xxxx or yyyy
+  #
+  $currentRoot =~ s/\s+and\s+/ /g;
+  $currentRoot =~ s/\s+or\s+/ /g;
+  @alternates = split(/ {1,}/, $currentRoot);
+  $currentRoot = shift @alternates;
+  if (scalar(@alternates) > 0) {
+    print STDERR sprintf "root = %s, alternates %d\n",$currentRoot,scalar(@alternates);
+  }
+
+
+  print $plog sprintf "[Root=%s][Entries=%d][Alternates=%d][TextLength=%d]\n",$currentRoot,$entryCount,scalar(@alternates),length $currentText;
+  if ($verbose) {
+    print $plog "Quasi root"
+  }
   #
   # write root record ?
   #
   if ($entryCount > 0) {
-    writeRoot(convertString($currentRoot,"root"),$currentRoot,$currentLetter);
+    writeRoot(convertString($currentRoot,"root"),$currentRoot,$currentLetter,$quasiRoot,scalar(@alternates));
+    if (scalar(@alternates) > 0) {
+      my $id = $dbh->func('last_insert_rowid');
+      foreach my $word (@alternates) {
+        writeAlternate(convertString($word,"alernateroot"),$word,$currentLetter,$quasiRoot,$id);
+      }
+    }
   }
   for (my $i=0;$i < $entryCount;$i++) {
     my $entry = $entries->item($i);
@@ -707,6 +792,7 @@ sub processRoot {
   }
 }
 ################################################################
+# opens all the log files in format <dir>/yymmdd_x_{err,parse}.log
 #
 #
 ################################################################
@@ -715,6 +801,7 @@ sub openLogs {
 
   my ($base,$p,$suffix) = fileparse($filename,'\..*');
 
+  $currentFile = $base;
   # if (! $base ) {
   #   $base = strftime "%F-%T", localtime $^T;
   #   $base =~ s/:/-/g;
@@ -748,6 +835,16 @@ sub parseFile {
   my $start = time();
 #  print STDERR "Parsing file: $fileName\n";
   my $parser = XML::LibXML->new;
+
+  if ($fileName =~ /1\.xml/) {
+    $supplement = 1;
+  }
+  else {
+    $supplement = 0;
+  }
+# this is written in entry record
+  my ($base,$p,$suffix) = fileparse($fileName,'\..*');
+  $currentFile = $base;
 
   openLogs($fileName);
 #  my $parser = new XML::DOM::Parser;
@@ -900,7 +997,21 @@ word text,
 bword text,
 letter text,
 bletter text,
-xml text
+xml text,
+supplement integer,
+quasi integer,
+alternates integer
+);
+create TABLE alternate (
+id integer primary key,
+word text,
+bword text,
+letter text,
+bletter text,
+xml text,
+supplement integer,
+quasi integer,
+alternate integer
 );
 create TABLE itype (
 id integer primary key,
@@ -919,7 +1030,9 @@ word text,
 itype text,
 nodeId text,
 bword text,
-xml text
+xml text,
+supplement integer,
+file text
 );
 
 CREATE TABLE xref (
@@ -1315,8 +1428,8 @@ END
   #
   eval {
     $xrefsth = $dbh->prepare("insert into xref (word,bword,node) values (?,?,?)");
-    $entrysth = $dbh->prepare("insert into entry (root,broot,word,itype,nodeId,bword,xml) values (?,?,?,?,?,?,?)");
-    $rootsth = $dbh->prepare("insert into root (word,bword,letter,bletter) values (?,?,?,?)");
+    $entrysth = $dbh->prepare("insert into entry (root,broot,word,itype,nodeId,bword,xml,supplement,file) values (?,?,?,?,?,?,?,?,?)");
+    $rootsth = $dbh->prepare("insert into root (word,bword,letter,bletter,supplement) values (?,?,?,?,?)");
     $lookupsth = $dbh->prepare("select id,bword,nodeId from entry where word = ?");
   };
   if ($@) {
@@ -1433,8 +1546,9 @@ if (! $dryRun ) {
   #
   eval {
     $xrefsth = $dbh->prepare("insert into xref (word,bword,node) values (?,?,?)");
-    $entrysth = $dbh->prepare("insert into entry (root,broot,word,itype,nodeId,bword,xml) values (?,?,?,?,?,?,?)");
-    $rootsth = $dbh->prepare("insert into root (word,bword,letter,bletter) values (?,?,?,?)");
+    $entrysth = $dbh->prepare("insert into entry (root,broot,word,itype,nodeId,bword,xml,supplement,file) values (?,?,?,?,?,?,?,?,?)");
+    $rootsth = $dbh->prepare("insert into root (word,bword,letter,bletter,supplement,quasi,alternates) values (?,?,?,?,?,?,?)");
+    $alternatesth = $dbh->prepare("insert into alternate (word,bword,letter,bletter,supplement,quasi,alternate) values (?,?,?,?,?,?,?)");
     # these are for the set-links searches
     $lookupsth = $dbh->prepare("select id,bword,nodeId from entry where word = ?");
   };
