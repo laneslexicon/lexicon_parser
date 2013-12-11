@@ -411,12 +411,27 @@ sub processNode {
   if ($nodeName eq "form") {
     processForm($node);
   }
-  if ($node->nodeName eq "pb") {
+  elsif ($node->nodeName eq "pb") {
      my $pageAttr = $node->getAttributeNode("n");
       if ($pageAttr) {
         $currentPage = $pageAttr->getValue();
       }
   }
+  # elsif ($node->nodeName eq "orth") {
+  #   my $origAttr = $node->getAttributeNode("orig");
+  #   if ($origAttr) {
+  #     my $t = $origAttr->getValue();
+  #     if ($t =~ /Bu|Ba|Bi/) {
+  #       my $textNode = $node->getFirstChild;
+  #       if ($textNode->nodeType == XML_TEXT_NODE) {
+  #         my $text = $textNode->nodeValue;
+  #         if ($text && ($text =~ /\d/)) {
+  #           print STDERR "$currentFile : $currentNodeId :$currentRoot : $t : $text\n";
+  #         }
+  #       }
+  #     }
+  #   }
+  # }
 
 }
 ################################################################
@@ -609,12 +624,32 @@ sub writeAlternate {
 # these two subroutines traverse the node converting all text
 # nodes whose parent has lang="ar"
 #
+# For <orth orig="Bu|Bi|Ba"> are not being converted
+#
+#
 ################################################################
 sub convertNode {
   my $node = shift;
   my $nodeName;
 
+  my $infl = 0;
   $nodeName =  $node->nodeName;
+  if ($nodeName eq "orth") {
+    my $origAttr = $node->getAttributeNode("orig");
+    if ($origAttr) {
+      my $t = $origAttr->getValue();
+      if ($t =~ /Bu|Ba|Bi/) {
+        my $textNode = $node->getFirstChild;
+        if ($textNode->nodeType == XML_TEXT_NODE) {
+          my $text = $textNode->nodeValue;
+          if ($text && ($text =~ /\d/)) {
+            $debug && print $dlog "$currentFile : $currentNodeId :$currentRoot : $t : $text inflection marker";
+            $infl = 1;
+          }
+        }
+      }
+    }
+  }
   #  print "$nodeName\n";
   my $attr = $node->getAttributeNode("lang");
   if ($attr && ($attr->getValue eq "ar")) {
@@ -622,6 +657,10 @@ sub convertNode {
       my $textNode = $node->getFirstChild;
       if ($textNode->nodeType == XML_TEXT_NODE) {
         my $text = $textNode->nodeValue;
+        if ($infl) {
+          $node->setAttribute("marker",$text);
+          $text =~ s/\d//g;
+        }
         my $str = convertString($text,$nodeName);
         $textNode->setData($str);
         #
@@ -1074,6 +1113,9 @@ EOF
 #  There is no actual page 1
 ################################################################
 sub fixupPages {
+
+  return unless ! $dryRun;
+
   my $sth = $dbh->prepare("select id,page from root where page != 1 limit 1");
   $sth->execute();
   my ($id,$page) = $sth->fetchrow_array();
