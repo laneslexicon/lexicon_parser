@@ -46,12 +46,14 @@ my $linksMode = 0;
 my $convertMode = 0;
 my $tagsMode = 0;
 my $arrowMode = 0;
+my $logbase = "";         # forms part of the log file name
 my %tags;
 #
 #   --dbname latest.sqlite --scan-arrows
 #          prints <orth type="arrow" lang="ar">...</orth> values
 #
 GetOptions (
+            "logbase=s" => \$logbase,
             "scan-arrows" => \$arrowMode,
             "scan-tags" => \$tagsMode,
             "set-links" => \$linksMode,
@@ -655,15 +657,7 @@ sub processRoot {
   $currentRoot =~ s/\s+or\s+/ /g;
   @alternates = split(/ {1,}/, $currentRoot);
   $currentRoot = shift @alternates;
-  if (scalar(@alternates) > 0) {
-    print STDERR sprintf "root = %s, alternates %d\n",$currentRoot,scalar(@alternates);
-  }
-
-
-  print $plog sprintf "[Root=%s][Entries=%d][Alternates=%d][TextLength=%d]\n",$currentRoot,$entryCount,scalar(@alternates),length $currentText;
-  if ($verbose) {
-    print $plog "Quasi root"
-  }
+  print $plog sprintf "[Root=%s][Quasi=%d][Entries=%d][Alternates=%d][TextLength=%d]\n",$currentRoot,$quasiRoot,$entryCount,scalar(@alternates),length $currentText;
   #
   # write root record ?
   #
@@ -809,8 +803,13 @@ sub openLogs {
   if ( ! -d $logDir ) {
     $logDir = ".";
   }
-  my $dt = POSIX::strftime "%y%m%d", localtime;
-  $base = $dt . "_" . $base;
+  if (! $logbase ) {
+    my $dt = POSIX::strftime "%y%m%d", localtime;
+    $base = $dt . "_" . $base;
+  }
+  else {
+    $base = $logbase . "_" . $base;
+  }
   my $errlog = File::Spec->catfile($logDir,$base . "_err.log");
   my $parselog = File::Spec->catfile($logDir,$base . "_parse.log");
   my $convlog = File::Spec->catfile($logDir,$base . "_conv.log");
