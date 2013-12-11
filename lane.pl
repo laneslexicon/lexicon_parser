@@ -654,7 +654,10 @@ sub processRoot {
   if ($currentRoot =~ /^Quasi/i) {
     $quasiRoot = 1;
     $currentRoot =~ s/^Quasi\s*//;
+
   }
+  # some of the Quasi entries have : Quasi xxxx:
+  $currentRoot =~ s/:/ /g;
   # this is for t0.xml
   #   <div2 n="Quasi tqY: or, accord. to some, tqw" type="root" org="uniform"
   #
