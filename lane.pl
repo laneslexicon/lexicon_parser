@@ -122,6 +122,8 @@ my @currentForms;
 my @currentStatus;
 my $currentRecordId;
 my $currentText;
+my $currentPage = 1;
+my $currentRootPage = 1;
 my @links;
 my $supplement;
 my $currentFile;
@@ -409,6 +411,12 @@ sub processNode {
   if ($nodeName eq "form") {
     processForm($node);
   }
+  if ($node->nodeName eq "pb") {
+     my $pageAttr = $node->getAttributeNode("n");
+      if ($pageAttr) {
+        $currentPage = $pageAttr->getValue();
+      }
+  }
 
 }
 ################################################################
@@ -472,6 +480,7 @@ sub writeEntry {
   $entrysth->bind_param(7,$xml);
   $entrysth->bind_param(8,$supplement);
   $entrysth->bind_param(9,$currentFile);
+  $entrysth->bind_param(10,$currentPage);
 
   if ($entrysth->execute()) {
     $entryDbCount++;
@@ -504,6 +513,7 @@ sub writeXref {
   $xrefsth->bind_param(1,$word);
   $xrefsth->bind_param(2,$bword);
   $xrefsth->bind_param(3,$node);
+  $xrefsth->bind_param(4,$currentPage);
   if ($xrefsth->execute()) {
     $xrefDbCount++;
     $writeCount++;
@@ -528,7 +538,7 @@ sub writeRoot {
   my $quasi = shift;
   my $alternates = shift;
   my $letter = convertString($bletter);
-  $debug && print $dlog "ROOT write: [$word][$bword][$letter][$bletter][$quasi][$alternates]\n";
+  $debug && print $dlog "ROOT write: [$word][$bword][$letter][$bletter][$quasi][$alternates][$currentRootPage]\n";
 
   if ($dryRun) {
     $rootDbCount++;
@@ -541,6 +551,7 @@ sub writeRoot {
   $rootsth->bind_param(5,$supplement);
   $rootsth->bind_param(6,$quasi);
   $rootsth->bind_param(7,$alternates);
+  $rootsth->bind_param(8,$currentRootPage);
   if ($rootsth->execute()) {
     $rootDbCount++;
     $writeCount++;
@@ -553,6 +564,9 @@ sub writeRoot {
     $totalWriteCount += $writeCount;
     $writeCount = 0;
   }
+# the root may have started on a different page so once we have written the root header
+# we can update the page
+  $currentRootPage = $currentPage;
 }
 ######################################################################
 # $dbh->prepare("insert into root (word,bword,letter,bletter) values (?,?,?)");
@@ -999,7 +1013,8 @@ bletter text,
 xml text,
 supplement integer,
 quasi integer,
-alternates integer
+alternates integer,
+page integer
 );
 create TABLE alternate (
 id integer primary key,
@@ -1031,7 +1046,8 @@ nodeId text,
 bword text,
 xml text,
 supplement integer,
-file text
+file text,
+page integer
 );
 
 CREATE TABLE xref (
@@ -1039,10 +1055,35 @@ id INTEGER primary key,
 word TEXT,
 bword text,
 node TEXT,
-type INTEGER
+type INTEGER,
+page integer
 );
 COMMIT;
 EOF
+}
+################################################################
+#
+#  we only know page breaks, not page numbers so the first records
+#  in root,entry and xref will have page number = 1, so we find the
+#  first root with a proper page number and set the entries to that
+#  page - 1
+#
+#  There is no actual page 1
+################################################################
+sub fixupPages {
+  my $sth = $dbh->prepare("select id,page from root where page != 1 limit 1");
+  $sth->execute();
+  my ($id,$page) = $sth->fetchrow_array();
+  if ($page =~ /\d+/) {
+    $page--;
+    $sth = $dbh->prepare("update root set page = $page where page = 1");
+    $sth->execute();
+    $sth = $dbh->prepare("update xref set page = $page where page = 1");
+    $sth->execute();
+    $sth = $dbh->prepare("update entry set page = $page where page = 1");
+    $sth->execute();
+    $dbh->commit();
+  }
 }
 ################################################################
 #
@@ -1544,9 +1585,9 @@ if (! $dryRun ) {
   # this doesn't catch the errors, so if file exists and tables are not right it will crash
   #
   eval {
-    $xrefsth = $dbh->prepare("insert into xref (word,bword,node) values (?,?,?)");
-    $entrysth = $dbh->prepare("insert into entry (root,broot,word,itype,nodeId,bword,xml,supplement,file) values (?,?,?,?,?,?,?,?,?)");
-    $rootsth = $dbh->prepare("insert into root (word,bword,letter,bletter,supplement,quasi,alternates) values (?,?,?,?,?,?,?)");
+    $xrefsth = $dbh->prepare("insert into xref (word,bword,node,page) values (?,?,?,?)");
+    $entrysth = $dbh->prepare("insert into entry (root,broot,word,itype,nodeId,bword,xml,supplement,file,page) values (?,?,?,?,?,?,?,?,?,?)");
+    $rootsth = $dbh->prepare("insert into root (word,bword,letter,bletter,supplement,quasi,alternates,page) values (?,?,?,?,?,?,?,?)");
     $alternatesth = $dbh->prepare("insert into alternate (word,bword,letter,bletter,supplement,quasi,alternate) values (?,?,?,?,?,?,?)");
     # these are for the set-links searches
     $lookupsth = $dbh->prepare("select id,bword,nodeId from entry where word = ?");
@@ -1566,6 +1607,7 @@ elsif ($xmlFile) {
     exit 1;
   }
   parseFile($xmlFile);
+  fixupPages();
 }
 elsif ($parseDir ) {
   if ( ! -d $parseDir ) {
@@ -1573,6 +1615,7 @@ elsif ($parseDir ) {
     exit 1;
   }
   parseDirectory($parseDir);
+  fixupPages();
 }
 elsif ($linksMode) {
   my $linklog = File::Spec->catfile($logDir,"link.log");
