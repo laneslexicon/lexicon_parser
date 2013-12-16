@@ -946,7 +946,7 @@ sub processRoot {
           #  XML that has been 'fixed' and use it to generate any diff's from the original.
           #
           my $xml;
-          if (! $skipConvert ) {
+#          if (! $skipConvert ) {
             my $clone = $entry->cloneNode(1);
             if ($clone->nodeType == XML_ELEMENT_NODE) {
               $convertMode = 1;
@@ -960,7 +960,7 @@ sub processRoot {
             if (! $xml ) {
               $xml = $entry->toString;
             }
-          }
+#          }
           #
           # update db
           #
