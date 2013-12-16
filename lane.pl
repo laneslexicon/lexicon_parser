@@ -48,6 +48,7 @@ my $tagsMode = 0;
 my $arrowMode = 0;
 my $logbase = "";         # forms part of the log file name
 my $linkletter = "";      # just set links for words whose root begins with this letter
+
 my %tags;
 #
 #   --dbname latest.sqlite --scan-arrows
@@ -99,7 +100,8 @@ my $elapsedTime = 0;
 my $conversionErrors = 0;
 my $adjustedConversions = 0;
 my $linkCount = 0;
-#
+my $arrowsCount = 0;
+my $unresolvedArrows = 0;
 #
 my $dbh = 0;
 my $writeCount = 0;
@@ -1508,7 +1510,7 @@ sub setLinksForNode {
   my $nodeName;
   my $parentName;
   my $skip = 0;
-
+  my $isArrow = 0;
   $nodeName =  $node->nodeName;
   my $parentNode = $node->getParentNode;
 
@@ -1530,6 +1532,12 @@ sub setLinksForNode {
   if (! $attr || ($attr->getValue ne "ar")) {
     return;
   }
+  if ($nodeName eq "orth") {
+    my $attr = $node->getAttributeNode("type");
+    if (! $attr || ($attr->getValue eq "arrow")) {
+      $isArrow = 1;
+    }
+  }
   #
   #  can it have multiple text nodes ?
   #
@@ -1537,10 +1545,12 @@ sub setLinksForNode {
     my $textNode = $node->getFirstChild;
     if ($textNode->nodeType == XML_TEXT_NODE) {
       my $text = $textNode->nodeValue;
+
       ## lookup the word
-      if ($doTest) {
-        $text = convertString($text,"link");
-      }
+#      if ($doTest) {
+#        $text = convertString($text,"link");
+#      }
+
       $lookupsth->bind_param(1,$text);
       $lookupsth->execute();
       #        print STDERR "Lookup:[$text]\n";
@@ -1559,6 +1569,17 @@ sub setLinksForNode {
 #        }
         }
       }
+      if ($isArrow) {
+        $arrowsCount++;
+        if (! $id ) {
+          $unresolvedArrows++;
+          push @links, { type => 1,word => $text , id => $unresolvedArrows};
+
+        }
+        else {
+
+        }
+      }
       #
       #  check the record we're linking to is not this one
       #
@@ -1569,7 +1590,7 @@ sub setLinksForNode {
           $node->setAttribute("nodeid",$nodeId);
           $node->setAttribute("linkid",$linkCount);
           $updateNode = 1;
-          push @links, { id => $id,node => $nodeId,bword => $bword,word => $text,linkid => $linkCount};
+          push @links, { type => 0,id => $id,node => $nodeId,bword => $bword,word => $text,linkid => $linkCount};
         }
         else {
           print STDERR "Record id:$id has no nodeid\n";
@@ -1652,9 +1673,16 @@ sub setLinks {
                 #           $dbh->begin_work();
                 $writeCount = 0;
               }
+            }
+            if (scalar(@links) > 0) {
               print $llog sprintf "Node:[%d][%s][%s][%s]\n",$id,$nodeId,$word,$bword;
               foreach my $link (@links) {
-                print $llog sprintf "[%d]    [%s]  to  [%d][%s] [%s]\n",$link->{linkid},$link->{word},$link->{id},$link->{node},$link->{bword};
+                if ($link->{type} == 0) {
+                  print $llog sprintf "[%d]    [%s]  to  [%d][%s] [%s]\n",$link->{linkid},$link->{word},$link->{id},$link->{node},$link->{bword};
+                }
+                else {
+                  print $llog sprintf "[unresolved arrow %d ] %s\n",$link->{id},$link->{word};
+                }
               }
             }
           }                     # end of process entryfree
@@ -1667,7 +1695,7 @@ sub setLinks {
 #    $dbh->begin_work();
     $writeCount = 0;
   }
-
+  print STDERR "Arrows count $arrowsCount, unresolved : $unresolvedArrows\n";
 }
 sub testlink {
 
