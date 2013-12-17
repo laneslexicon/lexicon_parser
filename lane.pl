@@ -270,27 +270,29 @@ sub convertString {
     return $t;
   }
   return $t unless ! $skipConvert;
-  if ($t =~ /\?\?/) {
-    writelog($blog,sprintf "2,%s,%s,%s,%d", $currentRoot,$currentWord,$currentNodeId,$currentPage);
-    return $t;
-  }
-  # convert all A@ to L
-  if ($t =~ /A@/) {
-    writelog($blog,sprintf "4,%s,%s,%s,%s,%s,%d", $proctype,$currentRoot,$currentWord,$currentNodeId,$t,$currentPage);
-  $t =~ s/A@/L/g;
-  }
-  # get rid of the &,
-  # this might need fixing properly
-  # may when proctype = "word" or "root" we can strip it out
-  #
+  if ($proctype ne "link") {
+    if ($t =~ /\?\?/) {
+      writelog($blog,sprintf "2,%s,%s,%s,%d", $currentRoot,$currentWord,$currentNodeId,$currentPage);
+      return $t;
+    }
+    # convert all A@ to L
+    if ($t =~ /A@/) {
+      writelog($blog,sprintf "4,%s,%s,%s,%s,%s,%d", $proctype,$currentRoot,$currentWord,$currentNodeId,$t,$currentPage);
+      $t =~ s/A@/L/g;
+    }
+    # get rid of the &,
+    # this might need fixing properly
+    # may when proctype = "word" or "root" we can strip it out
+    #
 
-  if ($t =~ /&/) {
-    writelog($blog,sprintf "3,%s,%s,%s,%s,%s,%d", $proctype,$currentRoot,$currentWord,$currentNodeId,$t,$currentPage);
-    if ($proctype eq "alternateroot") {
-      $t =~ s/&c\.*/ /g;
+    if ($t =~ /&/) {
+      writelog($blog,sprintf "3,%s,%s,%s,%s,%s,%d", $proctype,$currentRoot,$currentWord,$currentNodeId,$t,$currentPage);
+      if ($proctype eq "alternateroot") {
+        $t =~ s/&c\.*/ /g;
+      }
     }
   }
-#  $t =~ s/&amp;c/ /g);
+  #  $t =~ s/&amp;c/ /g);
   my $c = 0;
   $c += ($t =~ tr/'|OWI}A/\x{621}\x{622}\x{623}\x{624}\x{625}\x{626}\x{627}/);
   $c += ($t =~ tr/bptvjHx/\x{628}\x{629}\x{62a}\x{62b}\x{62c}\x{62d}\x{62e}/);
@@ -327,7 +329,7 @@ sub convertString {
         my $fix = 0;
         my $err = " ";
         # we have already parsed the node and written an error record
-        if ($proctype ne "word") {
+        if (($proctype ne "word") && ($proctype ne "link")){
         writelog($blog,sprintf "%d,%d,%d,%s,%s,%s,%s,%s,%s,%d,%s,%s,%d",
                  $fix,
                  $conversionErrors,
@@ -378,7 +380,7 @@ sub convertString {
       # if (($ix + $strLen) > (length $currentText)) {
       #   $strLen = length $currentText;
       # }
-      if ($proctype ne "word") {
+      if (($proctype ne "word") && ($proctype ne "link")){
         writelog($blog,sprintf ">>>\n%s\n<<<\n",(substr $currentText,$start, $end - $start));
       }
     }
@@ -980,14 +982,8 @@ sub processRoot {
     }
   }
 }
-################################################################
-# opens all the log files in format <dir>/yymmdd_x_{err,parse}.log
-#
-#
-################################################################
-sub openLogs {
+sub getLogBase {
   my $filename = shift;
-
   my ($base,$p,$suffix) = fileparse($filename,'\..*');
 
   $currentFile = $base;
@@ -1005,10 +1001,23 @@ sub openLogs {
   else {
     $base = $logbase . "_" . $base;
   }
+  return $base;
+}
+################################################################
+# opens all the log files in format <dir>/yymmdd_x_{err,parse}.log
+#
+#
+################################################################
+sub openLogs {
+  my $filename = shift;
+
+
+  my $base = getLogBase($filename);
   my $errlog = File::Spec->catfile($logDir,$base . "_err.log");
   my $parselog = File::Spec->catfile($logDir,$base . "_parse.log");
   my $convlog = File::Spec->catfile($logDir,$base . "_conv.log");
   my $debuglog = File::Spec->catfile($logDir,$base . "_debug.log");
+#  my $itypelog = File::Spec->catfile($logDir,$base . "_itype.log");
 
 
   open($blog,">:encoding(UTF8)",$convlog);
@@ -1016,6 +1025,8 @@ sub openLogs {
 
   open($plog,">:encoding(UTF8)",$parselog);
   open($elog,">:encoding(UTF8)",$errlog);
+#  open($ilog,">:encoding(UTF8)",$itypelog);
+
   $debug &&  open($dlog,">:encoding(UTF8)",$debuglog);
 
 
@@ -1385,6 +1396,7 @@ sub analyzeTags {
 }
 #############################################################
 #
+# used by scanTags
 #
 ############################################################
 sub printStatsCsv {
@@ -1477,7 +1489,7 @@ sub checkArrow {
 }
 #############################################################
 #
-# does the tags analysis parsing xml of all entry records
+#
 #
 ############################################################
 sub scanArrow {
@@ -1502,7 +1514,13 @@ sub scanArrow {
 }
 ################################################################
 #
+# takes entries <tagname lang="ar">abcd</tagname> and looks up
+# 'abcd' in entry table. If found, it adds attributes to the
+# node and adds an entry to @links which is processed by the calling
+# routine to decide whether to update the db.
 #
+# For entries with "type" = "arrow", if it can't find the linked to
+# item, it writes out an unresolved link record.
 #
 ################################################################
 sub setLinksForNode {
@@ -1534,7 +1552,7 @@ sub setLinksForNode {
   }
   if ($nodeName eq "orth") {
     my $attr = $node->getAttributeNode("type");
-    if (! $attr || ($attr->getValue eq "arrow")) {
+    if ($attr && ($attr->getValue eq "arrow")) {
       $isArrow = 1;
     }
   }
@@ -1560,7 +1578,12 @@ sub setLinksForNode {
         # some have dammatan forms so check for these
         #
 #        $dlookupsth->bind_param(1,$text);
-        $lookupsth->bind_param(1,$text . chr(0x64c));
+        if ($text =~  /\p{isArabic}/) {
+          $lookupsth->bind_param(1,$text . chr(0x64c));
+        }
+        else {
+          $lookupsth->bind_param(1,$text . "N");
+        }
         if ($lookupsth->execute()) {
           ($id,$bword,$nodeId) = $lookupsth->fetchrow_array;
 #          if ($id) {
@@ -1631,7 +1654,7 @@ sub setLinks {
     #   push @roots, $r[0];
     # }
   my $lettersth = $dbh->prepare("select bword from root where bletter = ?");
-  my $entrysth = $dbh->prepare("select id,root,broot,word,bword,nodeId,xml from entry where broot = ?");
+  my $entrysth = $dbh->prepare("select id,root,broot,word,bword,nodeId,xml,page from entry where broot = ?");
   my $updatesth = $dbh->prepare('update entry set xml = ? where id = ?');
   foreach $letter (@letters) {
 #    print STDERR "Doing letter [$letter]\n";
@@ -1646,7 +1669,7 @@ sub setLinks {
       # iterate through the entries for this root
       my @entry;
       while (@entry = $entrysth->fetchrow_array()) {
-        my ($id, $root,$broot,$word,$bword,$nodeId,$xml) = @entry;
+        my ($id, $root,$broot,$word,$bword,$nodeId,$xml,$page) = @entry;
 #        print STDERR "Doing word $bword\n";
 #        if (0) {
           my $doc = $parser->parse_string($xml);
@@ -1681,7 +1704,12 @@ sub setLinks {
                   print $llog sprintf "[%d]    [%s]  to  [%d][%s] [%s]\n",$link->{linkid},$link->{word},$link->{id},$link->{node},$link->{bword};
                 }
                 else {
-                  print $llog sprintf "[unresolved arrow %d ] %s\n",$link->{id},$link->{word};
+                  my $w = $link->{word};              # this should be arabic unless we have run with --no-convert
+                  my $aw = "";
+                  if ($aw !~ /\p{isArabic}/) {         # if it doesn't contain any arabic characters, convert it
+                    $aw = convertString($w,"link");
+                  }
+                  print $llog sprintf "[unresolved arrow %d ] %s, %s  , V%d/%d\n",$link->{id},$w,$aw,getVolForPage($page),$page;
                 }
               }
             }
@@ -1696,6 +1724,47 @@ sub setLinks {
     $writeCount = 0;
   }
   print STDERR "Arrows count $arrowsCount, unresolved : $unresolvedArrows\n";
+}
+###################################################################
+#   | Volume | Last Page |
+#   |--------+-----------|
+#   | 1      | 367       |
+#   | 2      | 837       |
+#   | 3      | 1280      |
+#   | 4      | 1757      |
+#   | 5      | 2219      |
+#   | 6      | 2475      |
+#   | 7      | 2749      |
+#   | 8      | 3064      |
+###################################################################
+sub getVolForPage {
+  my $page = shift;
+
+  if ($page < 368) {
+    return 1;
+  }
+  if ($page < 838) {
+    return 2;
+  }
+  if ($page < 1281) {
+    return 3;
+  }
+  if ($page < 1758) {
+    return 4;
+  }
+  if ($page < 2220) {
+    return 5;
+  }
+  if ($page < 2776) {
+    return 6;
+  }
+  if ($page < 2750) {
+    return 7;
+  }
+  if ($page < 3065) {
+    return 8;
+  }
+  return -1;
 }
 sub testlink {
 
