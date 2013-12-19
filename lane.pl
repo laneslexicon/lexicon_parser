@@ -823,6 +823,35 @@ sub convertNode {
     }
   }
 }
+########################################################################
+# change all sense separators -An- or -bn- :
+#   -b2-  <sense type="b" n="2">-b2-</sense>
+#
+#######################################################################
+sub insertSenses {
+  my $xml = shift;
+
+  my $t;
+  my $n;
+  my $s;
+  my $x;
+  my $r;
+  my $lastpos = 0;
+  my $ix;
+  while ($xml =~  /-([Ab])(\d+)-/g) {
+    $t = $1;
+    $n = $2;
+    $s = sprintf "-%s%d-",$t,$n;
+    $r = sprintf "<sense type=\"%s\" n=\"%d\">%s</sense>",$t,$n,$s,$s;
+    if ($t && $n) {
+      $x .= substr($xml,$lastpos,pos($xml) - $lastpos - length($s));
+      $x .= $r;
+      $lastpos = pos($xml);
+    }
+  }
+  $x .= substr($xml,$lastpos);
+  return $x;
+}
 ################################################################
 #
 #
@@ -983,6 +1012,7 @@ sub processRoot {
           if (! $xml ) {
             $xml = $entry->toString;
           }
+          $xml = insertSenses($xml);
           #          }
           #
           # update db
@@ -1946,7 +1976,6 @@ if ($doTest) {
   fixupPages();
 } elsif ($linksMode) {
   my $linklog = File::Spec->catfile($logDir,sprintf "%s_link.log",$logbase);
-  print STDERR "Link log $linklog\n";
   open($llog,">:encoding(UTF8)",$linklog);
   setLinks($linkletter) ;
 } elsif ($tagsMode) {
