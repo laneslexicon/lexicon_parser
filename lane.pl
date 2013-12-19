@@ -1882,6 +1882,10 @@ if ($sqlSource) {
 } else {
   $sql = getSQL();
 }
+if (! $logbase ) {
+  $logbase = $dbname;
+  $logbase =~ s/\.\w+$//;
+}
 if ($initdb) {
   if ( -e $dbname ) {
     if (! $overwrite ) {
@@ -1941,7 +1945,8 @@ if ($doTest) {
   parseDirectory($parseDir);
   fixupPages();
 } elsif ($linksMode) {
-  my $linklog = File::Spec->catfile($logDir,"link.log");
+  my $linklog = File::Spec->catfile($logDir,sprintf "%s_link.log",$logbase);
+  print STDERR "Link log $linklog\n";
   open($llog,">:encoding(UTF8)",$linklog);
   setLinks($linkletter) ;
 } elsif ($tagsMode) {
