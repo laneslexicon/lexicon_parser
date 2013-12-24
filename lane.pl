@@ -614,6 +614,16 @@ sub writeEntry {
     $entryDbCount++;
     return;
   }
+
+  my $nodenum = $node;
+  $nodenum =~ s/^n//;
+    if ($nodenum =~ /(\d+)-(\d+)/) {
+      $nodenum = $1 + ($2 / 10);
+    }
+    else {
+      $nodenum = $nodenum + 0.0;
+    }
+
   $entrysth->bind_param(1,$root);
   $entrysth->bind_param(2,$broot);
   $entrysth->bind_param(3,$word);
@@ -624,6 +634,7 @@ sub writeEntry {
   $entrysth->bind_param(8,$supplement);
   $entrysth->bind_param(9,$currentFile);
   $entrysth->bind_param(10,$currentPage);
+  $entrysth->bind_param(11,$nodenum);
 
   if ($entrysth->execute()) {
     $entryDbCount++;
@@ -1024,7 +1035,9 @@ sub processRoot {
           writeEntry(convertString($currentRoot,"root"),$currentRoot,
                      convertString($currentWord,"word"),
                      $currentItype,$currentNodeId,$currentWord,$xml);
-          $lastNodeId = $currentNodeId;
+          if ($currentNodeId !~ /-/) {
+            $lastNodeId = $currentNodeId;
+          }
         } else {
           print $plog "Parse warning 3: No node or word\n";
           $genWarning++;
@@ -1291,7 +1304,8 @@ nodeId text,
 xml text,
 supplement integer,
 file text,
-page integer
+page integer,
+nodenum real
 );
 create index 'word_index' on entry (word asc);
 create index 'broot_index' on entry (broot asc);
@@ -1831,7 +1845,7 @@ END
   #
   eval {
     $xrefsth = $dbh->prepare("insert into xref (word,bword,node) values (?,?,?)");
-    $entrysth = $dbh->prepare("insert into entry (root,broot,word,itype,nodeId,bword,xml,supplement,file) values (?,?,?,?,?,?,?,?,?)");
+    $entrysth = $dbh->prepare("insert into entry (root,broot,word,itype,nodeId,bword,xml,supplement,file,nodenum) values (?,?,?,?,?,?,?,?,?,?)");
     $rootsth = $dbh->prepare("insert into root (word,bword,letter,bletter,supplement) values (?,?,?,?,?)");
     $lookupsth = $dbh->prepare("select id,bword,nodeId from entry where word = ?");
   };
@@ -1950,7 +1964,7 @@ if (! $dryRun ) {
   #
   eval {
     $xrefsth = $dbh->prepare("insert into xref (word,bword,node,page) values (?,?,?,?)");
-    $entrysth = $dbh->prepare("insert into entry (root,broot,word,itype,nodeId,bword,xml,supplement,file,page) values (?,?,?,?,?,?,?,?,?,?)");
+    $entrysth = $dbh->prepare("insert into entry (root,broot,word,itype,nodeId,bword,xml,supplement,file,page,nodenum) values (?,?,?,?,?,?,?,?,?,?,?)");
     $rootsth = $dbh->prepare("insert into root (word,bword,letter,bletter,supplement,quasi,alternates,page) values (?,?,?,?,?,?,?,?)");
     $alternatesth = $dbh->prepare("insert into alternate (word,bword,letter,bletter,supplement,quasi,alternate) values (?,?,?,?,?,?,?)");
     # these are for the set-links searches
