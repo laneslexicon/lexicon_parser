@@ -128,8 +128,9 @@ my @currentForms;
 my @currentStatus;
 my $currentRecordId;
 my $currentText;
-my $currentPage = 1;
-my $currentRootPage = 1;
+my $currentPage = -1;
+my $currentRootPage = -1;
+my $firstPage;
 my @links;
 my $supplement;
 my $currentFile;
@@ -545,7 +546,12 @@ sub processNode {
     processForm($node);
   } elsif ($node->nodeName eq "pb") {
     my $pageAttr = $node->getAttributeNode("n");
+    # save the first proper page number so we can fixup the records that
+    # don't have it set
     if ($pageAttr) {
+      if ($currentPage == -1) {
+        $firstPage = $pageAttr->getValue();
+      }
       $currentPage = $pageAttr->getValue();
     }
   }
@@ -1219,9 +1225,11 @@ sub parseDirectory {
       $entryDbCount = 0;
       $rootDbCount = 0;
       $genWarning = 0;
+      $currentPage = -1;
+      $currentRootPage = -1;
 
       parseFile($file);
-
+      fixupPages();
       push @totals, {
                      "File" => $file,
                      "Skip root count" => $skipRootCount,
@@ -1273,6 +1281,8 @@ quasi integer,
 alternates integer,
 page integer
 );
+create index 'letter_index' on root (letter asc);
+
 create TABLE alternate (
 id integer primary key,
 word text,
@@ -1324,26 +1334,27 @@ EOF
 ################################################################
 #
 #  we only know page breaks, not page numbers so the first records
-#  in root,entry and xref will have page number = 1, so we find the
-#  first root with a proper page number and set the entries to that
-#  page - 1
+#  in root,entry and xref will have page number = -1, so we find the
+#  while processing the entries $firstPage is set to the value of
+#  <pb n="nnn"/>
+#  after all records have been written, we use this to set the page
+#  for those records
 #
-#  There is no actual page 1
+#  If the first entry in a volume is longer than one page this will
+#  not set the right number.
+#
 ################################################################
 sub fixupPages {
 
   return unless ! $dryRun;
 
-  my $sth = $dbh->prepare("select id,page from root where page != 1 limit 1");
-  $sth->execute();
-  my ($id,$page) = $sth->fetchrow_array();
-  if ($page =~ /\d+/) {
-    $page--;
-    $sth = $dbh->prepare("update root set page = $page where page = 1");
+  if ($firstPage) {
+    $firstPage--;
+    my $sth = $dbh->prepare("update root set page = $firstPage where page = -1");
     $sth->execute();
-    $sth = $dbh->prepare("update xref set page = $page where page = 1");
+    $sth = $dbh->prepare("update xref set page = $firstPage where page = -1");
     $sth->execute();
-    $sth = $dbh->prepare("update entry set page = $page where page = 1");
+    $sth = $dbh->prepare("update entry set page = $firstPage where page = -1");
     $sth->execute();
     $dbh->commit();
   }
@@ -1991,7 +2002,7 @@ if ($doTest) {
     exit 1;
   }
   parseDirectory($parseDir);
-  fixupPages();
+
 } elsif ($linksMode) {
   my $linklog = File::Spec->catfile($logDir,sprintf "%s_link.log",$logbase);
   open($llog,">:encoding(UTF8)",$linklog);
