@@ -919,6 +919,16 @@ sub processRoot {
   @alternates = split(/ {1,}/, $currentRoot);
   $currentRoot = shift @alternates;
   print $plog sprintf "[Root=%s][Quasi=%d][Entries=%d][Alternates=%d][TextLength=%d]\n",$currentRoot,$quasiRoot,$entryCount,scalar(@alternates),length $currentText;
+  if ($entryCount > 0) {
+    my $entry = $entries->item(0);
+    $currentText = $entry->toString;
+    if ($currentText =~ /See\s+supplement/i) {
+      $entryCount--;
+      if ($entryCount > 0) {
+        print $plog sprintf "ERROR: see supplement with entryCount > 1\n";
+      }
+    }
+  }
   #
   # write root record ?
   #
@@ -1937,6 +1947,12 @@ sub runTest {
 
 my $sql;
 if ($sqlSource) {
+  open(SQL,"<$sqlSource");
+  while(<SQL>) {
+    chomp;
+    $sql = $sql . $_;
+  }
+  close SQL;
   # get SQL source from file
 } else {
   $sql = getSQL();
