@@ -46,6 +46,7 @@ my $linksMode = 0;
 my $convertMode = 0;
 my $tagsMode = 0;
 my $arrowMode = 0;
+my $xrefMode = 0;
 my $logbase = "";               # forms part of the log file name
 my $linkletter = ""; # just set links for words whose root begins with this letter
 
@@ -75,7 +76,8 @@ GetOptions (
             "dir=s" => \$parseDir, # directory with xml files to be parsed
             "initdb" => \$initdb,  # delete existing records
             "sql=s"  => \$sqlSource, # SQL used to init db
-            "db=s" => \$dbname
+            "db=s" => \$dbname,
+            "xrefs" => \$xrefMode
            )
   or die("Error in command line arguments\n");
 
@@ -1806,6 +1808,38 @@ sub setLinks {
   }
   print STDERR "Arrows count $arrowsCount, unresolved : $unresolvedArrows\n";
 }
+sub updateXrefs {
+  my $sth =  $dbh->prepare("select id,node from xref");
+  my $uh = $dbh->prepare("update xref set root = ?,broot = ?,entry = ?,bentry = ? where id = ?");
+  my $lh = $dbh->prepare("select root,broot,word,bword from entry where nodeId = ?");
+  if (! $sth || ! $uh || ! $lh) {
+    print STDERR "Error preparing update xref SQL";
+    return;
+  }
+  $sth->execute();
+  $writeCount = 0;
+  while (my @xref = $sth->fetchrow_array()) {
+    # get the entry
+    $lh->bind_param(1,$xref[1]);
+    $lh->execute();
+    my @entry = $lh->fetchrow_array();
+    if ($#entry != -1) {
+      $uh->bind_param(1,$entry[0]);
+      $uh->bind_param(2,$entry[1]);
+      $uh->bind_param(3,$entry[2]);
+      $uh->bind_param(4,$entry[3]);
+      $uh->bind_param(5,$xref[0]);
+      $uh->execute();
+      $writeCount++;
+      if ($writeCount > $commitCount) {
+        $dbh->commit();
+        #           $dbh->begin_work();
+        $writeCount = 0;
+      }
+    }
+  }
+
+}
 ###################################################################
 #   | Volume | Last Page |
 #   |--------+-----------|
@@ -2027,7 +2061,9 @@ if ($doTest) {
   scanTags();
 } elsif ($arrowMode) {
   scanArrow();
-} else {
+} elsif ($xrefMode) {
+  updateXrefs();
+}else {
   print "Nothing to do here\n";
 }
 #convertString("ja Oxdr sthwmn");
