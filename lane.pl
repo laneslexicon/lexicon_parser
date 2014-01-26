@@ -248,6 +248,10 @@ sub fixup {
 #       C-u C-c |
 #   (C-u sets delimiter to ,)
 #
+#   2:  double question mark
+#   3:  ampersand
+#   4:  A@ converted to L
+#   5:  non Buckwalter character (that is not punctuation or space)
 #
 ################################################################
 sub convertString {
@@ -320,7 +324,10 @@ sub convertString {
   my $sz = length $t;
   my $j = 0;
 
-
+#
+#  go through checking for characters that have not been converted
+#  and report them as type 5 errors
+#
   for (my $i=0;$i < $sz;$i++) {
     my $x= substr $t,$i,1;
     if ( $x eq (substr $s,$i,1)) {
@@ -334,7 +341,7 @@ sub convertString {
         my $err = " ";
         # we have already parsed the node and written an error record
         if (($proctype ne "word") && ($proctype ne "link")) {
-          writelog($blog,sprintf "%d,%d,%d,%s,%s,%s,%s,%s,%s,%d,%s,%s,%d",
+          writelog($blog,sprintf "5,%d,%d,%d,%s,%s,%s,%s,%s,%s,%d,%s,%s,%d",
                    $fix,
                    $conversionErrors,
                    $j,
