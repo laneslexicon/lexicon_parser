@@ -318,6 +318,10 @@ sub convertString {
   # L alef wasla
   $c += ($t =~ tr/^=_L/\x{654}\x{622}\x{640}\x{0671}/);
 
+
+#  $c += ($t =~ tr/PJVG/\x{67e}\x{686}\x{6a4}\x{6af}/);
+
+
   # count the spaces etc
   my $r = $t;
   my $spaces = ($r =~ s/ / /g);
