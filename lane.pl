@@ -1023,7 +1023,7 @@ sub processRoot {
           $numeric = "n";
           $currentStatus[5] = "n";
         }
-        $entry->setAttribute("key",$currentWord);
+        $entry->setAttribute("key",encode("UTF-8",$currentWord));
         my $status = join "",@currentStatus; #$numeric,
         print $plog sprintf "[%03d][%06d][%s]>>> %5s%7s %-30s%-5s %s\n",
           $i,
