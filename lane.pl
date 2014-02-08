@@ -1148,7 +1148,7 @@ sub parseFile {
   openLogs($fileName);
   #  my $parser = new XML::DOM::Parser;
   my $doc = $parser->parse_file ($fileName);
-
+  $doc->setEncoding("UTF-8");
   # print all HREF attributes of all CODEBASE elements
   my $nodes = $doc->getElementsByTagName ("div1");
   my $n = $nodes->size();
@@ -1768,6 +1768,7 @@ sub setLinks {
         #        print STDERR "Doing word $bword\n";
         #        if (0) {
         my $doc = $parser->parse_string($xml);
+        $doc->setEncoding("UTF-8");
         my $nodes = $doc->getElementsByTagName ("entryFree");
         my $n = $nodes->size();
         $currentRecordId = $id;
@@ -1947,7 +1948,7 @@ sub testEncoding {
 
   foreach my $row (@$entries) {
     my ($id, $root,$broot,$word,$bword,$nodeId,$xml) = @$row;
-    #    print STDOUT Encode::decode('UTF-8', $root); ## fuck!
+    #    print STDOUT Encode::decode('utf8', $root); ## fuck!
     print STDOUT sprintf "%s ===== %s ========== %s\n",$nodeId,decode("utf-8",$root),decode("utf-8",$word);
   }
 }
