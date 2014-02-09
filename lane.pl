@@ -1135,6 +1135,7 @@ sub parseFile {
   my $start = time();
   #  print STDERR "Parsing file: $fileName\n";
   my $parser = XML::LibXML->new;
+  $parser->set_options("line_numbers" => "parser");
 
   if ($fileName =~ /1\.xml/) {
     $supplement = 1;
@@ -1522,6 +1523,8 @@ sub printStatsCsv {
 sub scanTags {
   my $sth;
   my $parser = XML::LibXML->new;
+    $parser->set_options("line_numbers" => "parser");
+
   #  my $parser = new XML::DOM::Parser;
 
   $writeCount = 0;
@@ -1594,6 +1597,8 @@ sub checkArrow {
 sub scanArrow {
   my $sth;
   my $parser = XML::LibXML->new;
+    $parser->set_options("line_numbers" => "parser");
+
   #  my $parser = new XML::DOM::Parser;
 
   $writeCount = 0;
@@ -1726,6 +1731,8 @@ sub setLinksForNode {
 sub setLinks {
   my $letter = shift;
   my $parser = XML::LibXML->new;
+    $parser->set_options("line_numbers" => "parser");
+
   #  my $parser = new XML::DOM::Parser;
 
 
@@ -1923,6 +1930,8 @@ END
   }
 
   my $parser = XML::LibXML->new;
+    $parser->set_options("line_numbers" => "parser");
+
   #  my $parser = new XML::DOM::Parser;
   my $doc = $parser->parse_string($xml);
 
