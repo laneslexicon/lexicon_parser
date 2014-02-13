@@ -115,6 +115,8 @@ my $entrysth;
 my $rootsth;
 my $alternatesth;
 my $lookupsth;  # for 'select id from entry where word = ?
+my $lastentrysth;
+my $orthsth;
 my $updateNode; # set links uses to check if the node xml needs saving
 #
 
@@ -555,6 +557,7 @@ sub processNode {
   my $nodeName;
 
   $nodeName =  $node->nodeName;
+  $node->removeAttribute("TEIform");
   if ($nodeName eq "form") {
     processForm($node);
   } elsif ($node->nodeName eq "pb") {
@@ -627,11 +630,12 @@ sub writeEntry {
   my $bword = shift;
   my $xml  = shift;
 
+  my $ret = 0;
   $debug && print $dlog "ENTRY write: [$root][$broot][$word][$itype][$bword][$node]\n";
 
   if ($dryRun) {
     $entryDbCount++;
-    return;
+    return 1;
   }
 
   my $nodenum = $node;
@@ -658,6 +662,7 @@ sub writeEntry {
   if ($entrysth->execute()) {
     $entryDbCount++;
     $writeCount++;
+    $ret = 1;
   } else {
     $dbErrorCount++;
   }
@@ -667,6 +672,29 @@ sub writeEntry {
     $totalWriteCount += $writeCount;
     $writeCount = 0;
   }
+  return $ret;
+}
+sub writeOrths {
+  my $node = shift;
+  my $root = shift;
+  my $broot = shift;
+  my @forms = @_;
+
+  # get max(id) from entry
+  $lastentrysth->execute();
+  my ($entryid) = $lastentrysth->fetchrow_array;
+  my $max = scalar @forms;
+  for(my $i=0;$i < $max;$i++) {
+    $orthsth->bind_param(1,$entryid);
+    $orthsth->bind_param(2,convertString($forms[$i],"orth"));
+    $orthsth->bind_param(3,$forms[$i]);
+    $orthsth->bind_param(4,$node);
+    $orthsth->bind_param(5,$root);
+    $orthsth->bind_param(6,$broot);
+    $orthsth->execute();
+    $writeCount++;
+  }
+#  print STDERR sprintf "node %s, entry id %d, %s\n",$node,$entryid,join ",", @forms;
 }
 ######################################################################
 # $dbh->prepare("insert into xref (word,bword,node) values (?,?,?)")
@@ -1061,9 +1089,18 @@ sub processRoot {
           #
           # update db
           #
-          writeEntry(convertString($currentRoot,"root"),$currentRoot,
+          my $ok = writeEntry(convertString($currentRoot,"root"),$currentRoot,
                      convertString($currentWord,"word"),
                      $currentItype,$currentNodeId,$currentWord,$xml);
+          #
+          #
+          #
+          if ($ok && ($#currentForms != -1)) {
+            writeOrths($currentNodeId,
+                       convertString($currentRoot,"root"),
+                       $currentRoot,
+                       @currentForms);
+          }
           if ($currentNodeId !~ /-/) {
             $lastNodeId = $currentNodeId;
           }
@@ -2051,6 +2088,9 @@ if (! $dryRun ) {
     $alternatesth = $dbh->prepare("insert into alternate (word,bword,letter,bletter,supplement,quasi,alternate) values (?,?,?,?,?,?,?)");
     # these are for the set-links searches
     $lookupsth = $dbh->prepare("select id,bword,nodeId from entry where word = ?");
+    # for the <orth> forms
+    $orthsth = $dbh->prepare("insert into orth (entryid,form,bform,nodeid,root,broot) values (?,?,?,?,?,?)");
+    $lastentrysth = $dbh->prepare("select max(id) from entry");
   };
   if ($@) {
     print STDERR "SQL prepare error:$@\n";
