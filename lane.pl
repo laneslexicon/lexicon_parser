@@ -47,6 +47,7 @@ my $convertMode = 0;
 my $tagsMode = 0;
 my $arrowMode = 0;
 my $xrefMode = 0;
+my $diacriticsMode = 0;
 my $logbase = "";               # forms part of the log file name
 my $linkletter = ""; # just set links for words whose root begins with this letter
 
@@ -77,7 +78,8 @@ GetOptions (
             "initdb" => \$initdb,  # delete existing records
             "sql=s"  => \$sqlSource, # SQL used to init db
             "db=s" => \$dbname,
-            "xrefs" => \$xrefMode
+            "xrefs" => \$xrefMode,
+            "diacritics" => \$diacriticsMode
            )
   or die("Error in command line arguments\n");
 
@@ -1896,6 +1898,35 @@ sub updateXrefs {
   }
 
 }
+sub stripDiacritics {
+  my $sth =  $dbh->prepare("select id,word from xref");
+  my $uh = $dbh->prepare("update xref set bareword = ? where id = ?");
+  if (! $sth || ! $uh ) {
+    print STDERR "Error preparing update xref SQL";
+    return;
+  }
+  $sth->execute();
+  $writeCount = 0;
+  while (my @xref = $sth->fetchrow_array()) {
+    my $id = $xref[0];
+    my $word = decode("UTF-8",$xref[1]);
+    my $count = ($word =~ tr/\x{64b}-\x{652}\x{670}\x{671}//d);
+#    print STDERR sprintf "id %d %d, %s\n",$id,$count,$word;
+    # get the entry
+
+
+      $uh->bind_param(1,$word);
+      $uh->bind_param(2,$id);
+      $uh->execute();
+      $writeCount++;
+      if ($writeCount > $commitCount) {
+        $dbh->commit();
+        #           $dbh->begin_work();
+        $writeCount = 0;
+      }
+   }
+
+}
 ###################################################################
 #   | Volume | Last Page |
 #   |--------+-----------|
@@ -2122,6 +2153,10 @@ if ($doTest) {
   scanTags();
 } elsif ($arrowMode) {
   scanArrow();
+} elsif ($xrefMode) {
+  updateXrefs();
+} elsif ($diacriticsMode) {
+  stripDiacritics();
 } elsif ($xrefMode) {
   updateXrefs();
 }else {
