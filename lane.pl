@@ -1898,6 +1898,7 @@ sub updateXrefs {
   }
 
 }
+
 sub stripDiacritics {
   my $sth =  $dbh->prepare("select id,word from xref");
   my $uh = $dbh->prepare("update xref set bareword = ? where id = ?");
@@ -1925,7 +1926,58 @@ sub stripDiacritics {
         $writeCount = 0;
       }
    }
-
+  #
+  # same again for entry
+  #
+  $sth = $dbh->prepare("select id,word from entry");
+  $uh = $dbh->prepare("update entry set bareword = ? where id = ?");
+  if (! $sth || ! $uh ) {
+    print STDERR "Error preparing update entry SQL";
+    return;
+  }
+  $sth->execute();
+  $writeCount = 0;
+  while (my @entry = $sth->fetchrow_array()) {
+    my $id = $entry[0];
+    my $word = decode("UTF-8",$entry[1]);
+    my $count = ($word =~ tr/\x{64b}-\x{652}\x{670}\x{671}//d);
+#    print STDERR sprintf "id %d %d, %s\n",$id,$count,$word;
+      $uh->bind_param(1,$word);
+      $uh->bind_param(2,$id);
+      $uh->execute();
+      $writeCount++;
+      if ($writeCount > $commitCount) {
+        $dbh->commit();
+        #           $dbh->begin_work();
+        $writeCount = 0;
+      }
+   }
+  #
+  # same again for itype
+  #
+  $sth = $dbh->prepare("select id,word from itype");
+  $uh = $dbh->prepare("update itype set bareword = ? where id = ?");
+  if (! $sth || ! $uh ) {
+    print STDERR "Error preparing update entry SQL";
+    return;
+  }
+  $sth->execute();
+  $writeCount = 0;
+  while (my @itype = $sth->fetchrow_array()) {
+    my $id = $itype[0];
+    my $word = decode("UTF-8",$itype[1]);
+    my $count = ($word =~ tr/\x{64b}-\x{652}\x{670}\x{671}//d);
+#    print STDERR sprintf "id %d %d, %s\n",$id,$count,$word;
+      $uh->bind_param(1,$word);
+      $uh->bind_param(2,$id);
+      $uh->execute();
+      $writeCount++;
+      if ($writeCount > $commitCount) {
+        $dbh->commit();
+        #           $dbh->begin_work();
+        $writeCount = 0;
+      }
+   }
 }
 ###################################################################
 #   | Volume | Last Page |
