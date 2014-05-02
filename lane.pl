@@ -117,6 +117,7 @@ my $entrysth;
 my $rootsth;
 my $alternatesth;
 my $lookupsth;  # for 'select id from entry where word = ?
+my $baresth;  #  = $dbh->prepare("select id,word from entry where bareword = ?");
 my $lastentrysth;
 my $orthsth;
 my $updateNode; # set links uses to check if the node xml needs saving
@@ -1708,9 +1709,9 @@ sub setLinksForNode {
       my $text = $textNode->nodeValue;
 
       ## lookup the word
-      #      if ($doTest) {
-      #        $text = convertString($text,"link");
-      #      }
+      #   see if there is an 'entry' record for this word
+      #
+      #
 
       $lookupsth->bind_param(1,$text);
       $lookupsth->execute();
@@ -1733,6 +1734,24 @@ sub setLinksForNode {
           #            print STDERR "Found at [$id][$bword][$nodeId]\n";
           #          }
           #        }
+        }
+        if (! $id ) {
+          #
+          # it could be a bare form without diacritics
+          #
+          my $word = $text;
+          my $count = ($word =~ tr/\x{64b}-\x{652}\x{670}\x{671}//d);
+          my $bareword;
+          #$baresth = $dbh->prepare("select id,word,bareword,nodeId from entry where bareword = ?");
+#          if ($count > 0) {
+            $baresth->bind_param(1,$word);
+            if ($baresth->execute()) {
+              ($id,$word,$bword,$bareword,$nodeId) = $baresth->fetchrow_array;
+              if ($id) {
+                print STDERR sprintf "bareword match %s, $nodeId\n",decode("UTF-8",$word);
+              }
+            }
+ #         }
         }
       }
       if ($isArrow) {
@@ -1797,6 +1816,10 @@ sub setLinks {
   my $lettersth = $dbh->prepare("select bword from root where bletter = ?");
   my $entrysth = $dbh->prepare("select id,root,broot,word,bword,nodeId,xml,page from entry where broot = ?");
   my $updatesth = $dbh->prepare('update entry set xml = ? where id = ?');
+  $baresth = $dbh->prepare("select id,word,bword,bareword,nodeId from entry where bareword = ?");
+
+  my $lastentrysth;
+
   foreach $letter (@letters) {
     #    print STDERR "Doing letter [$letter]\n";
     $writeCount = 0;
@@ -1826,7 +1849,7 @@ sub setLinks {
           $currentWord = $word;
           traverseNode($node);
           #  REMOVE THE NEXT LINE WHEN DONE
-          #$updateNode = 0;
+          $updateNode = 0;
           if ($updateNode) {
             $xml = $node->toString;
             $updatesth->bind_param(1,$xml);
@@ -1850,7 +1873,14 @@ sub setLinks {
                 if ($w =~ /^[\p{InArabic}\p{IsSpace}\p{IsPunct}]+$/) {
                   $aw = convertString($w,"link");
                 }
+
+                eval {
                 print $llog sprintf "[unresolved arrow %d ] %s, %s  , V%d/%d\n",$link->{id},$w,$aw,getVolForPage($page),$page;
+                };
+                if ($@) {
+                  print $@ . "\n";
+                  print "w = $w, aw = $aw\n";
+                }
               }
             }
           }

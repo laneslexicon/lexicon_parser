@@ -3,6 +3,9 @@
 .PHONY:	splitall
 .PHONY: testentry
 XMLFILES := $(wildcard ./tmp/*.xml)
+#
+# these are for testing various XLST
+#
 tei:
 	@java -jar /workvol/saxonhe/saxon9he.jar \
               -t -xsl:./xslt/tei.xsl \
@@ -33,11 +36,17 @@ jeem:
 #	perl lane.pl --db jeem.sqlite --set-links
 lexicon:
 	perl lane.pl --db lexicon.sqlite --initdb --overwrite --dir ./xml --no-context --verbose --logbase lexicon --sql ./lexicon_schema.sql
+#
+#
+#      run this to get a complete database
+#
+#
 full:
 	perl lane.pl --db lexicon.sqlite --initdb --overwrite --dir ./xml --no-context --verbose --logbase lexicon --sql ./lexicon_schema.sql
 	cp lexicon.sqlite /tmp
 	perl lane.pl --db lexicon.sqlite --set-links
 	perl lane.pl --db lexicon.sqlite --xrefs
+	perl lane.pl --db lexicon.sqlite --diacritics
 buck:
 	perl lane.pl --db buck.sqlite --initdb --overwrite --no-convert --no-context  --dir ./xml --verbose --logbase buck
 	cp buck.sqlite /tmp
