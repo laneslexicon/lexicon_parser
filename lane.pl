@@ -1673,6 +1673,7 @@ sub setLinksForNode {
   my $parentName;
   my $skip = 0;
   my $isArrow = 0;
+  my $bareWordMatch = 0;
   $nodeName =  $node->nodeName;
   my $parentNode = $node->getParentNode;
 
@@ -1707,12 +1708,10 @@ sub setLinksForNode {
     my $textNode = $node->getFirstChild;
     if ($textNode->nodeType == XML_TEXT_NODE) {
       my $text = $textNode->nodeValue;
-
-      ## lookup the word
+      # lookup the word
       #   see if there is an 'entry' record for this word
+      #   setting $id to the record num of the matched entry
       #
-      #
-
       $lookupsth->bind_param(1,$text);
       $lookupsth->execute();
       #        print STDERR "Lookup:[$text]\n";
@@ -1735,23 +1734,21 @@ sub setLinksForNode {
           #          }
           #        }
         }
-        if (! $id ) {
-          #
-          # it could be a bare form without diacritics
-          #
-          my $word = $text;
-          my $count = ($word =~ tr/\x{64b}-\x{652}\x{670}\x{671}//d);
-          my $bareword;
-          #$baresth = $dbh->prepare("select id,word,bareword,nodeId from entry where bareword = ?");
-#          if ($count > 0) {
-            $baresth->bind_param(1,$word);
-            if ($baresth->execute()) {
-              ($id,$word,$bword,$bareword,$nodeId) = $baresth->fetchrow_array;
-              if ($id) {
-                print STDERR sprintf "bareword match %s, $nodeId\n",decode("UTF-8",$word);
-              }
-            }
- #         }
+      }
+      if (! $id ) {
+        #
+        # it could be a bare form without diacritics
+        #
+        my $word = $text;
+        my $count = ($word =~ tr/\x{64b}-\x{652}\x{670}\x{671}//d);
+        my $bareword;
+        $baresth->bind_param(1,$word);
+        if ($baresth->execute()) {
+          ($id,$word,$bword,$bareword,$nodeId) = $baresth->fetchrow_array;
+          if ($id) {
+#            print STDERR sprintf "[%d] bareword match %s, $nodeId\n",$isArrow,decode("UTF-8",$word);
+            $bareWordMatch = 1;
+          }
         }
       }
       if ($isArrow) {
@@ -1773,8 +1770,9 @@ sub setLinksForNode {
           $node->setAttribute("goto",$id);
           $node->setAttribute("nodeid",$nodeId);
           $node->setAttribute("linkid",$linkCount);
+          $node->setAttribute("bareword",$bareWordMatch);
           $updateNode = 1;
-          push @links, { type => 0,id => $id,node => $nodeId,bword => $bword,word => $text,linkid => $linkCount};
+          push @links, { type => 0,id => $id,node => $nodeId,bword => $bword,word => $text,linkid => $linkCount,bareword => $bareWordMatch};
         } else {
           print STDERR "Record id:$id has no nodeid\n";
         }
@@ -1847,9 +1845,13 @@ sub setLinks {
           $updateNode = 0;
           $currentNodeId = $nodeId;
           $currentWord = $word;
+          #
+          # in links mode this wil call
+          # setLinksForNode
+          #
           traverseNode($node);
           #  REMOVE THE NEXT LINE WHEN DONE
-          $updateNode = 0;
+          #$updateNode = 0;
           if ($updateNode) {
             $xml = $node->toString;
             $updatesth->bind_param(1,$xml);
@@ -1866,7 +1868,7 @@ sub setLinks {
             print $llog sprintf "Node:[%d][%s][%s][%s]\n",$id,$nodeId,$word,$bword;
             foreach my $link (@links) {
               if ($link->{type} == 0) {
-                print $llog sprintf "[%d]    [%s]  to  [%d][%s] [%s]\n",$link->{linkid},$link->{word},$link->{id},$link->{node},$link->{bword};
+                print $llog sprintf "[%d]    [%s]  to  [%d][%s] [%s][%d]\n",$link->{linkid},$link->{word},$link->{id},$link->{node},$link->{bword},$link->{bareword};
               } else {
                 my $w = $link->{word}; # this should be arabic unless we have run with --no-convert
                 my $aw = "";
@@ -1896,6 +1898,10 @@ sub setLinks {
   }
   print STDERR "Arrows count $arrowsCount, unresolved : $unresolvedArrows\n";
 }
+#
+# update the entry for each xref record, store the associated root & entry word (ie the entry
+# in which the word occurred. We need this so we can load the entry when we present the search result
+#
 sub updateXrefs {
   my $sth =  $dbh->prepare("select id,node from xref");
   my $uh = $dbh->prepare("update xref set root = ?,broot = ?,entry = ?,bentry = ? where id = ?");
@@ -2239,8 +2245,6 @@ if ($doTest) {
   updateXrefs();
 } elsif ($diacriticsMode) {
   stripDiacritics();
-} elsif ($xrefMode) {
-  updateXrefs();
 }else {
   print "Nothing to do here\n";
 }
