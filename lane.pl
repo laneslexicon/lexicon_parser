@@ -257,7 +257,7 @@ sub fixup {
 #   3:  ampersand
 #   4:  A@ converted to L
 #   5:  non Buckwalter character (that is not punctuation or space)
-#
+#   6:  A_ converted to I
 ################################################################
 sub convertString {
   my $t = shift;
@@ -292,6 +292,10 @@ sub convertString {
     if ($t =~ /A@/) {
       writelog($blog,sprintf "4,%s,%s,%s,%s,%s,%d", $proctype,$currentRoot,$currentWord,$currentNodeId,$t,$currentPage);
       $t =~ s/A@/L/g;
+    }
+    if ($t =~ /A_/) {
+      writelog($blog,sprintf "6,%s,%s,%s,%s,%s,%d", $proctype,$currentRoot,$currentWord,$currentNodeId,$t,$currentPage);
+    $t =~ s/A_/I/g;
     }
     # get rid of the &,
     # this might need fixing properly
