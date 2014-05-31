@@ -1418,11 +1418,11 @@ sub fixupPages {
 
   if ($firstPage) {
     $firstPage--;
-    my $sth = $dbh->prepare("update root set page = $firstPage where page = -1");
+    my $sth = $dbh->prepare("update root set page = $firstPage where page = -1 and datasource = 1");
     $sth->execute();
-    $sth = $dbh->prepare("update xref set page = $firstPage where page = -1");
+    $sth = $dbh->prepare("update xref set page = $firstPage where page = -1 and datasource = 1");
     $sth->execute();
-    $sth = $dbh->prepare("update entry set page = $firstPage where page = -1");
+    $sth = $dbh->prepare("update entry set page = $firstPage where page = -1 and datasource = 1");
     $sth->execute();
     $dbh->commit();
   }
@@ -1572,7 +1572,7 @@ sub scanTags {
   #  my $parser = new XML::DOM::Parser;
 
   $writeCount = 0;
-  $sth = $dbh->prepare("select * from entry");
+  $sth = $dbh->prepare("select * from entry where datasource = 1");
   my $entries = $dbh->selectall_arrayref("SELECT id,root,broot,word,bword,nodeId,xml from entry");
 
   foreach my $row (@$entries) {
@@ -1804,7 +1804,7 @@ sub setLinks {
       push @letters,$letter;
     }
   } else {
-    my $x = $dbh->selectall_arrayref("select distinct bletter from root");
+    my $x = $dbh->selectall_arrayref("select distinct bletter from root where datasource = 1");
     foreach my $y (@$x) {
       push @letters,$y->[0];
     }
@@ -1815,10 +1815,10 @@ sub setLinks {
   # while (my @r = $sth->fetchrow_arrow()) {
   #   push @roots, $r[0];
   # }
-  my $lettersth = $dbh->prepare("select bword from root where bletter = ?");
-  my $entrysth = $dbh->prepare("select id,root,broot,word,bword,nodeId,xml,page from entry where broot = ?");
+  my $lettersth = $dbh->prepare("select bword from root where bletter = ? and datasource = 1");
+  my $entrysth = $dbh->prepare("select id,root,broot,word,bword,nodeId,xml,page from entry where broot = ? and datasource = 1");
   my $updatesth = $dbh->prepare('update entry set xml = ? where id = ?');
-  $baresth = $dbh->prepare("select id,word,bword,bareword,nodeId from entry where bareword = ?");
+  $baresth = $dbh->prepare("select id,word,bword,bareword,nodeId from entry where bareword = ? and datasource = 1");
 
   my $lastentrysth;
 
@@ -1907,9 +1907,9 @@ sub setLinks {
 # in which the word occurred. We need this so we can load the entry when we present the search result
 #
 sub updateXrefs {
-  my $sth =  $dbh->prepare("select id,node from xref");
+  my $sth =  $dbh->prepare("select id,node from xref where datasource = 1");
   my $uh = $dbh->prepare("update xref set root = ?,broot = ?,entry = ?,bentry = ? where id = ?");
-  my $lh = $dbh->prepare("select root,broot,word,bword from entry where nodeId = ?");
+  my $lh = $dbh->prepare("select root,broot,word,bword from entry where nodeId = ? and datasource = 1");
   if (! $sth || ! $uh || ! $lh) {
     print STDERR "Error preparing update xref SQL";
     return;
@@ -1940,15 +1940,18 @@ sub updateXrefs {
 }
 
 sub stripDiacritics {
-  my $sth =  $dbh->prepare("select id,word from xref");
+  my $count = 0;
+  my $sth =  $dbh->prepare("select id,word from xref where datasource = 1");
   my $uh = $dbh->prepare("update xref set bareword = ? where id = ?");
   if (! $sth || ! $uh ) {
     print STDERR "Error preparing update xref SQL";
     return;
   }
   $sth->execute();
+
   $writeCount = 0;
   while (my @xref = $sth->fetchrow_array()) {
+    $count++;
     my $id = $xref[0];
     my $word = decode("UTF-8",$xref[1]);
     my $count = ($word =~ tr/\x{64b}-\x{652}\x{670}\x{671}//d);
@@ -1966,10 +1969,12 @@ sub stripDiacritics {
         $writeCount = 0;
       }
    }
+  print sprintf "Xref rows to updated : %d\n",$count;
+  $count = 0;
   #
   # same again for entry
   #
-  $sth = $dbh->prepare("select id,word from entry");
+  $sth = $dbh->prepare("select id,word from entry where datasource = 1");
   $uh = $dbh->prepare("update entry set bareword = ? where id = ?");
   if (! $sth || ! $uh ) {
     print STDERR "Error preparing update entry SQL";
@@ -1978,6 +1983,7 @@ sub stripDiacritics {
   $sth->execute();
   $writeCount = 0;
   while (my @entry = $sth->fetchrow_array()) {
+    $count++;
     my $id = $entry[0];
     my $word = decode("UTF-8",$entry[1]);
     my $count = ($word =~ tr/\x{64b}-\x{652}\x{670}\x{671}//d);
@@ -1992,10 +1998,12 @@ sub stripDiacritics {
         $writeCount = 0;
       }
    }
+  print sprintf "entry rows updated : %d\n",$count;
+  $count = 0;
   #
   # same again for itype
   #
-  $sth = $dbh->prepare("select id,word from itype");
+  $sth = $dbh->prepare("select id,word from itype where datasource = 1");
   $uh = $dbh->prepare("update itype set bareword = ? where id = ?");
   if (! $sth || ! $uh ) {
     print STDERR "Error preparing update entry SQL";
@@ -2018,6 +2026,7 @@ sub stripDiacritics {
         $writeCount = 0;
       }
    }
+  $dbh->commit();
 }
 ###################################################################
 #   | Volume | Last Page |
@@ -2078,10 +2087,10 @@ END
   # this doesn't catch the errors, so if file exists and tables are not right it will crash
   #
   eval {
-    $xrefsth = $dbh->prepare("insert into xref (word,bword,node) values (?,?,?)");
-    $entrysth = $dbh->prepare("insert into entry (root,broot,word,itype,nodeId,bword,xml,supplement,file,nodenum) values (?,?,?,?,?,?,?,?,?,?)");
-    $rootsth = $dbh->prepare("insert into root (word,bword,letter,bletter,supplement) values (?,?,?,?,?)");
-    $lookupsth = $dbh->prepare("select id,bword,nodeId from entry where word = ?");
+    $xrefsth = $dbh->prepare("insert into xref (datasource,word,bword,node) values (1,?,?,?)");
+    $entrysth = $dbh->prepare("insert into entry (datasource,root,broot,word,itype,nodeId,bword,xml,supplement,file,nodenum) values (1,?,?,?,?,?,?,?,?,?,?)");
+    $rootsth = $dbh->prepare("insert into root (datasource,word,bword,letter,bletter,supplement) values (1,?,?,?,?,?)");
+    $lookupsth = $dbh->prepare("select id,bword,nodeId from entry where word = ? and datasource = 1");
   };
   if ($@) {
     print STDERR "SQL prepare error:$@\n";
@@ -2205,15 +2214,15 @@ if (! $dryRun ) {
   # this doesn't catch the errors, so if file exists and tables are not right it will crash
   #
   eval {
-    $xrefsth = $dbh->prepare("insert into xref (word,bword,node,page) values (?,?,?,?)");
-    $entrysth = $dbh->prepare("insert into entry (root,broot,word,itype,nodeId,bword,xml,supplement,file,page,nodenum) values (?,?,?,?,?,?,?,?,?,?,?)");
-    $rootsth = $dbh->prepare("insert into root (word,bword,letter,bletter,supplement,quasi,alternates,page) values (?,?,?,?,?,?,?,?)");
-    $alternatesth = $dbh->prepare("insert into alternate (word,bword,letter,bletter,supplement,quasi,alternate) values (?,?,?,?,?,?,?)");
+    $xrefsth = $dbh->prepare("insert into xref (datasource,word,bword,node,page) values (1,?,?,?,?)");
+    $entrysth = $dbh->prepare("insert into entry (datasource,root,broot,word,itype,nodeId,bword,xml,supplement,file,page,nodenum) values (1,?,?,?,?,?,?,?,?,?,?,?)");
+    $rootsth = $dbh->prepare("insert into root (datasource,word,bword,letter,bletter,supplement,quasi,alternates,page) values (1,?,?,?,?,?,?,?,?)");
+    $alternatesth = $dbh->prepare("insert into alternate (datasource,word,bword,letter,bletter,supplement,quasi,alternate) values (1,?,?,?,?,?,?,?)");
     # these are for the set-links searches
-    $lookupsth = $dbh->prepare("select id,bword,nodeId from entry where word = ?");
+    $lookupsth = $dbh->prepare("select id,bword,nodeId from entry where word = ? and datasource = 1");
     # for the <orth> forms
-    $orthsth = $dbh->prepare("insert into orth (entryid,form,bform,nodeid,root,broot) values (?,?,?,?,?,?)");
-    $lastentrysth = $dbh->prepare("select max(id) from entry");
+    $orthsth = $dbh->prepare("insert into orth (datasource,entryid,form,bform,nodeid,root,broot) values (1,?,?,?,?,?,?)");
+    $lastentrysth = $dbh->prepare("select max(id) from entry where datasource = 1");
   };
   if ($@) {
     print STDERR "SQL prepare error:$@\n";
