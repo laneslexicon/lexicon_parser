@@ -44,9 +44,9 @@ lexicon:
 full:
 	perl lane.pl --db lexicon.sqlite --initdb --overwrite --dir ./xml --no-context --verbose --logbase lexicon --sql ./lexicon_schema.sql
 	cp lexicon.sqlite /tmp
-	perl lane.pl --db lexicon.sqlite --set-links
 	perl lane.pl --db lexicon.sqlite --xrefs
 	perl lane.pl --db lexicon.sqlite --diacritics
+	perl lane.pl --db lexicon.sqlite --set-links
 buck:
 	perl lane.pl --db buck.sqlite --initdb --overwrite --no-convert --no-context  --dir ./xml --verbose --logbase buck
 	cp buck.sqlite /tmp
