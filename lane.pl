@@ -50,7 +50,8 @@ my $xrefMode = 0;
 my $diacriticsMode = 0;
 my $logbase = "";               # forms part of the log file name
 my $linkletter = ""; # just set links for words whose root begins with this letter
-
+my $rootLineNumber;
+my $entryLineNumber;
 my %tags;
 #
 #   --dbname latest.sqlite --scan-arrows
@@ -262,10 +263,13 @@ sub fixup {
 sub convertString {
   my $t = shift;
   my $proctype = shift;
+  my $lineno = shift;
   my $s = $t;
 
 
-
+  if (! defined $lineno ) {
+     $lineno = "";
+  }
   $t =~ s/^\s+//;
   $t =~ s/\s+$//;
   # so we don't report this type of stuff:
@@ -285,16 +289,16 @@ sub convertString {
   return $t unless ! $skipConvert;
   if ($proctype ne "link") {
     if ($t =~ /\?\?/) {
-      writelog($blog,sprintf "2,%s,%s,%s,%d", $currentRoot,$currentWord,$currentNodeId,$currentPage);
+      writelog($blog,sprintf "2,%s,%s,%s,%s,V%d/%d,%s", $currentRoot,$currentWord,$currentNodeId,$t,getVolForPage($currentPage),$currentPage,$lineno);
       return $t;
     }
     # convert all A@ to L
     if ($t =~ /A@/) {
-      writelog($blog,sprintf "4,%s,%s,%s,%s,%s,%d", $proctype,$currentRoot,$currentWord,$currentNodeId,$t,$currentPage);
+      writelog($blog,sprintf "4,%s,%s,%s,%s,%s,V%d/%d,%s", $proctype,$currentRoot,$currentWord,$currentNodeId,$t,getVolForPage($currentPage),$currentPage,$lineno);
       $t =~ s/A@/L/g;
     }
     if ($t =~ /A_/) {
-      writelog($blog,sprintf "6,%s,%s,%s,%s,%s,%d", $proctype,$currentRoot,$currentWord,$currentNodeId,$t,$currentPage);
+      writelog($blog,sprintf "6,%s,%s,%s,%s,%s,V%d/%d,%s", $proctype,$currentRoot,$currentWord,$currentNodeId,$t,getVolForPage($currentPage),$currentPage,$lineno);
     $t =~ s/A_/I/g;
     }
     # get rid of the &,
@@ -303,7 +307,7 @@ sub convertString {
     #
 
     if ($t =~ /&/) {
-      writelog($blog,sprintf "3,%s,%s,%s,%s,%s,%d", $proctype,$currentRoot,$currentWord,$currentNodeId,$t,$currentPage);
+      writelog($blog,sprintf "3,%s,%s,%s,%s,%s,V%d/%d,%s", $proctype,$currentRoot,$currentWord,$currentNodeId,$t,getVolForPage($currentPage),$currentPage,$lineno);
       if ($proctype eq "alternateroot") {
         $t =~ s/&c\.*/ /g;
       }
@@ -354,7 +358,7 @@ sub convertString {
         my $err = " ";
         # we have already parsed the node and written an error record
         if (($proctype ne "word") && ($proctype ne "link")) {
-          writelog($blog,sprintf "5,%d,%d,%d,%s,%s,%s,%s,%s,%s,%d,%s,%s,%d",
+          writelog($blog,sprintf "5,%d,%d,%d,%s,%s,%s,%s,%s,%s,%d,%s,%s,V%d,%d,%s",
                    $fix,
                    $conversionErrors,
                    $j,
@@ -366,8 +370,9 @@ sub convertString {
                    $err,
                    $i,
                    $s,
-                   $t,
-                   $currentPage);
+                   $t,getVolForPage($currentPage),
+                   $currentPage,
+                   $lineno);
 
         }
       }
@@ -745,7 +750,7 @@ sub writeRoot {
   my $bletter = shift;
   my $quasi = shift;
   my $alternates = shift;
-  my $letter = convertString($bletter,"letter");
+  my $letter = convertString($bletter,"letter",$rootLineNumber);
   $debug && print $dlog "ROOT write: [$word][$bword][$letter][$bletter][$quasi][$alternates][$currentRootPage]\n";
 
   if ($dryRun) {
@@ -937,6 +942,8 @@ sub processRoot {
   my @alternates;
   $currentText = $node->toString;
 
+  $rootLineNumber = $node->line_number();
+
   if ($currentRoot =~ /^Quasi/i) {
     $quasiRoot = 1;
     $currentRoot =~ s/^Quasi\s*//;
@@ -981,18 +988,19 @@ sub processRoot {
   # write root record ?
   #
   if ($entryCount > 0) {
-    writeRoot(convertString($currentRoot,"root"),$currentRoot,$currentLetter,$quasiRoot,scalar(@alternates));
+    writeRoot(convertString($currentRoot,"root",$rootLineNumber),$currentRoot,$currentLetter,$quasiRoot,scalar(@alternates));
     if (scalar(@alternates) > 0) {
       my $id = $dbh->func('last_insert_rowid');
       foreach my $word (@alternates) {
-        writeAlternate(convertString($word,"alternateroot"),$word,$currentLetter,$quasiRoot,$id);
+        writeAlternate(convertString($word,"alternateroot",$rootLineNumber),$word,$currentLetter,$quasiRoot,$id);
       }
     }
   }
   for (my $i=0;$i < $entryCount;$i++) {
     my $entry = $entries->item($i);
+    $entryLineNumber = $entry->line_number();
     $currentText = $entry->toString;
-    #    print sprintf "Processing entryFree %d [ %s  ]\n",$i,$entry->nodeName;
+#    print sprintf "Processing entryFree %d [ %s  ]\n",$entryLineNumber,$entry->nodeName;
     my $id;
     my $key;
     my $ar_key;
@@ -1083,7 +1091,7 @@ sub processRoot {
           if ($clone->nodeType == XML_ELEMENT_NODE) {
             $convertMode = 1;
             traverseNode($clone);
-            $clone->setAttribute("key",convertString($currentWord,"word"));
+            $clone->setAttribute("key",convertString($currentWord,"word",$entry->line_number()));
             $xml =  $clone->toString;
           } else {
             print $elog "Error cloning node for transliteration:$currentNodeId,$currentWord";
@@ -1096,15 +1104,15 @@ sub processRoot {
           #
           # update db
           #
-          my $ok = writeEntry(convertString($currentRoot,"root"),$currentRoot,
-                     convertString($currentWord,"word"),
+          my $ok = writeEntry(convertString($currentRoot,"root",$rootLineNumber),$currentRoot,
+                     convertString($currentWord,"word",$entryLineNumber),
                      $currentItype,$currentNodeId,$currentWord,$xml);
           #
           #
           #
           if ($ok && ($#currentForms != -1)) {
             writeOrths($currentNodeId,
-                       convertString($currentRoot,"root"),
+                       convertString($currentRoot,"root",$rootLineNumber),
                        $currentRoot,
                        @currentForms);
           }
@@ -2058,7 +2066,7 @@ sub getVolForPage {
   if ($page < 2220) {
     return 5;
   }
-  if ($page < 2776) {
+  if ($page < 2476) {
     return 6;
   }
   if ($page < 2750) {
