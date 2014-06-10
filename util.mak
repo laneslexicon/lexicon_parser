@@ -31,20 +31,24 @@ testentry:
               -s:/tmp/lane/entry_n$${N}.xml \
               -o:/tmp/test$${N}.html
 small:
+	./version.sh
 	perl lane.pl --db test.sqlite --initdb --overwrite --xml ./test/test_j0.xml --no-context --verbose --logbase test --sql ./lexicon_schema.sql
 jeem:
-	perl lane.pl --db jeem.sqlite --initdb --overwrite --xml ./xml_originals/j0.xml --no-context --verbose --logbase jeem --sql ./lexicon_schema.sql
+	./version.sh
+	perl lane.pl --db jeem.sqlite --initdb --overwrite --xml ../xml/j0.xml --no-context --verbose --logbase jeem --sql ./lexicon_schema.sql
 #	cp jeem.sqlite /tmp
 #	perl lane.pl --db jeem.sqlite --set-links
 lexicon:
-	perl lane.pl --db lexicon.sqlite --initdb --overwrite --dir ./xml_originals --no-context --verbose --logbase lexicon --sql ./lexicon_schema.sql
+	./version.sh
+	perl lane.pl --db lexicon.sqlite --initdb --overwrite --dir .../xml --no-context --verbose --logbase lexicon --sql ./lexicon_schema.sql
 #
 #
 #      run this to get a complete database
 #
 #
 full:
-	perl lane.pl --db lexicon.sqlite --initdb --overwrite --dir ./xml_originals --no-context --verbose --logbase lexicon --sql ./lexicon_schema.sql
+	./version.sh
+	perl lane.pl --db lexicon.sqlite --initdb --overwrite --dir ../xml --no-context --verbose --logbase lexicon --sql ./lexicon_schema.sql
 	cp lexicon.sqlite /tmp
 	perl lane.pl --db lexicon.sqlite --xrefs
 	perl lane.pl --db lexicon.sqlite --diacritics

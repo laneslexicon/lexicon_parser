@@ -2212,12 +2212,14 @@ sub writeSource {
       $id = $rec->{id};
     }
   }
-  my $version = `./git-version.sh`;
+  my $version = `cat SCRIPTVERSION`;
   $version =~ s/\n//g;
+  my $xmlversion = `cat XMLVERSION`;
+  $xmlversion =~ s/\n//g;
 
   if ($mode == 1) {
     eval {
-    $sth = $dbh->prepare("insert into lexicon (sourceid,description,createversion,createdate) values (?,?,?,?)");
+    $sth = $dbh->prepare("insert into lexicon (sourceid,description,createversion,createdate,xmlversion) values (?,?,?,?,?)");
     };
     if ($@) {
       print STDERR $@;
@@ -2227,12 +2229,13 @@ sub writeSource {
     $sth->bind_param(2,"Lane's Arabic-English Lexicon");
     $sth->bind_param(3,$version);
     $sth->bind_param(4,scalar(localtime()));
+    $sth->bind_param(5,$xmlversion);
     $sth->execute();
     $dbh->commit();
   }
   elsif ($mode == 2) {
     eval {
-    $sth = $dbh->prepare("update lexicon set updateversion = ?,updatedate = ? where id = ?");
+    $sth = $dbh->prepare("update lexicon set updateversion = ?,updatedate = ?,set xmlversion = ? where id = ?");
     };
     if ($@) {
       print STDERR $@;
@@ -2241,6 +2244,7 @@ sub writeSource {
     $sth->bind_param(1,$version);
     $sth->bind_param(2,scalar(localtime()));
     $sth->bind_param(3,$id);
+    $sth->bind_param(4,$xmlversion);
     $sth->execute();
     $dbh->commit();
   }
