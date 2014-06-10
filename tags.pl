@@ -171,7 +171,7 @@ sub printStatsCsv {
   }
 }
 sub scanAll {
-  parseDirectory("./xml");
+  parseDirectory("../xml");
   printStatsCsv();
 
 }
