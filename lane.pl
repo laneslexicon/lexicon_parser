@@ -716,17 +716,21 @@ sub writeXref {
   my $word = shift;
   my $bword = shift;
   my $node = shift;
-
+  my $type = shift;
   $debug && print $dlog "XREF write: [$word][$bword][$node]\n";
 
   if ($dryRun) {
     $xrefDbCount++;
     return;
   }
+  if (! defined $type ) {
+    $type = -1;
+  }
   $xrefsth->bind_param(1,$word);
   $xrefsth->bind_param(2,$bword);
   $xrefsth->bind_param(3,$node);
   $xrefsth->bind_param(4,$currentPage);
+  $xrefsth->bind_param(5,$type);
   if ($xrefsth->execute()) {
     $xrefDbCount++;
     $writeCount++;
@@ -871,6 +875,7 @@ sub convertNode {
     if ($node->hasChildNodes) {
       my $textNode = $node->getFirstChild;
       if ($textNode->nodeType == XML_TEXT_NODE) {
+        my $type = -1;
         my $text = $textNode->nodeValue;
         # some items with vowelling marked do not have the Bu,Bi,Ba as above
         if ($text =~ /[0456789]/) {
@@ -883,13 +888,25 @@ sub convertNode {
             $node->setAttribute("marker","none");
           }
           $text = convertVowelling($currentRoot,$text,$infl);
+          $type = 1;
         }
-        my $str = convertString($text,$nodeName);
+        my $str = convertString($text,$nodeName,$node->line_number());
         $textNode->setData($str);
         #
         # write xref record using: $currentWord,$currentNodeId,$text,$str
         #
-        writeXref($str,$text,$currentNodeId);
+        writeXref($str,$text,$currentNodeId,$type,$node->line_number());
+        #
+        # to aid with searching routines, split multi-word text and write
+        # record for each word
+        #
+        my @words = split '\s+',$text;
+        if ($#words > 1) {
+          $type = 2;
+          foreach my $word (@words) {
+            writeXref(convertString($word,$nodeName),$word,$currentNodeId,$type,$node->line_number());
+          }
+        }
       }
     } else {
       print $plog "Parse warning 2: node <$nodeName> has lang=ar but no text\n";
@@ -2222,7 +2239,7 @@ if (! $dryRun ) {
   # this doesn't catch the errors, so if file exists and tables are not right it will crash
   #
   eval {
-    $xrefsth = $dbh->prepare("insert into xref (datasource,word,bword,node,page) values (1,?,?,?,?)");
+    $xrefsth = $dbh->prepare("insert into xref (datasource,word,bword,node,page,type) values (1,?,?,?,?,?)");
     $entrysth = $dbh->prepare("insert into entry (datasource,root,broot,word,itype,nodeId,bword,xml,supplement,file,page,nodenum) values (1,?,?,?,?,?,?,?,?,?,?,?)");
     $rootsth = $dbh->prepare("insert into root (datasource,word,bword,letter,bletter,supplement,quasi,alternates,page) values (1,?,?,?,?,?,?,?,?)");
     $alternatesth = $dbh->prepare("insert into alternate (datasource,word,bword,letter,bletter,supplement,quasi,alternate) values (1,?,?,?,?,?,?,?)");
