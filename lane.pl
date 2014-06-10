@@ -2190,6 +2190,63 @@ sub runTest {
   }
   exit 0;
 }
+sub writeSource {
+  my $sno = shift;
+  my $sth;
+  my $id;
+  eval {
+    $sth = $dbh->prepare("select id from lexicon where sourceid = $sno");
+  };
+  if ( $@ ) {
+    print STDERR $@;
+    return 1;
+  }
+  my $mode = 0;
+  if ($sth->execute()) {
+    my $rec = $sth->fetchrow_hashref;
+    if (! $rec ) {
+      $mode = 1;
+    }
+    else {
+      $mode = 2;
+      $id = $rec->{id};
+    }
+  }
+  my $version = `./git-version.sh`;
+  $version =~ s/\n//g;
+
+  if ($mode == 1) {
+    eval {
+    $sth = $dbh->prepare("insert into lexicon (sourceid,description,createversion,createdate) values (?,?,?,?)");
+    };
+    if ($@) {
+      print STDERR $@;
+      return 1;
+    }
+    $sth->bind_param(1,$sno);
+    $sth->bind_param(2,"Lane's Arabic-English Lexicon");
+    $sth->bind_param(3,$version);
+    $sth->bind_param(4,scalar(localtime()));
+    $sth->execute();
+    $dbh->commit();
+  }
+  elsif ($mode == 2) {
+    eval {
+    $sth = $dbh->prepare("update lexicon set updateversion = ?,updatedate = ? where id = ?");
+    };
+    if ($@) {
+      print STDERR $@;
+      return 1;
+    }
+    $sth->bind_param(1,$version);
+    $sth->bind_param(2,scalar(localtime()));
+    $sth->bind_param(3,$id);
+    $sth->execute();
+    $dbh->commit();
+  }
+  return 0;
+}
+
 #############################################################
 #
 # MAIN
@@ -2259,33 +2316,51 @@ if (! $dryRun ) {
 }
 if ($doTest) {
   runTest($doTest);
-} elsif ($xmlFile) {
+  exit 1;
+}
+#
+# Do a single file
+#
+if ($xmlFile) {
   if ( ! -e $xmlFile) {
     print STDERR "No such file: $xmlFile";
     exit 1;
   }
   parseFile($xmlFile);
   fixupPages();
-} elsif ($parseDir ) {
+  writeSource(1);
+  exit 0;
+}
+#
+#  Do all files
+#
+if ($parseDir ) {
   if ( ! -d $parseDir ) {
     print STDERR "No such directory: $parseDir\n";
     exit 1;
   }
   parseDirectory($parseDir);
-
-} elsif ($linksMode) {
+  writeSource(1);
+  exit 0;
+}
+if ($linksMode) {
   my $linklog = File::Spec->catfile($logDir,sprintf "%s_link.log",$logbase);
   open($llog,">:encoding(UTF8)",$linklog);
   setLinks($linkletter) ;
+  writeSource(1);
 } elsif ($tagsMode) {
   scanTags();
+  writeSource(1);
 } elsif ($arrowMode) {
   scanArrow();
+  writeSource(1);
 } elsif ($xrefMode) {
+  writeSource(1);
   updateXrefs();
 } elsif ($diacriticsMode) {
   stripDiacritics();
-}else {
+  writeSource(1);
+} else {
   print "Nothing to do here\n";
 }
 #convertString("ja Oxdr sthwmn");
