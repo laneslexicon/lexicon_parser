@@ -329,7 +329,7 @@ sub convertString {
   # = alef with madda above (in buckwalter docs is |)
   # _ tatweel , also - above
   # L alef wasla
-  $c += ($t =~ tr/^=_L/\x{654}\x{622}\x{640}\x{0671}/);
+  $c += ($t =~ tr/^=_L/\x{654}\x{622}\x{640}\x{671}/);
 
 
 #  $c += ($t =~ tr/PJVG/\x{67e}\x{686}\x{6a4}\x{6af}/);
@@ -1065,7 +1065,9 @@ sub processRoot {
         } else {
           $currentWord = $key;
         }
-        # alef wasla
+        #=============================
+        # alef wasla  TODO ?
+        #=============================
         $currentWord =~ s/A@/L/g;
       }
       if ($id ) {
