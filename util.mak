@@ -19,7 +19,7 @@ split:
               -s:${S} \
               -o:./tmp/test.html
 splitall:
-	 for XML in $(wildcard ./xml/*.xml); do \
+	 for XML in $(wildcard ./xml_originals/*.xml); do \
 	 	echo "$${XML}"; \
 		java -jar /workvol/saxonhe/saxon9he.jar \
 		-t -xsl:./splitter.xsl \
@@ -30,25 +30,27 @@ testentry:
               -t -xsl:./xslt/tei.xsl \
               -s:/tmp/lane/entry_n$${N}.xml \
               -o:/tmp/test$${N}.html
+small:
+	perl lane.pl --db test.sqlite --initdb --overwrite --xml ./test/test_j0.xml --no-context --verbose --logbase test --sql ./lexicon_schema.sql
 jeem:
-	perl lane.pl --db jeem.sqlite --initdb --overwrite --xml ./xml/j0.xml --no-context --verbose --logbase jeem --sql ./lexicon_schema.sql
+	perl lane.pl --db jeem.sqlite --initdb --overwrite --xml ./xml_originals/j0.xml --no-context --verbose --logbase jeem --sql ./lexicon_schema.sql
 #	cp jeem.sqlite /tmp
 #	perl lane.pl --db jeem.sqlite --set-links
 lexicon:
-	perl lane.pl --db lexicon.sqlite --initdb --overwrite --dir ./xml --no-context --verbose --logbase lexicon --sql ./lexicon_schema.sql
+	perl lane.pl --db lexicon.sqlite --initdb --overwrite --dir ./xml_originals --no-context --verbose --logbase lexicon --sql ./lexicon_schema.sql
 #
 #
 #      run this to get a complete database
 #
 #
 full:
-	perl lane.pl --db lexicon.sqlite --initdb --overwrite --dir ./xml --no-context --verbose --logbase lexicon --sql ./lexicon_schema.sql
+	perl lane.pl --db lexicon.sqlite --initdb --overwrite --dir ./xml_originals --no-context --verbose --logbase lexicon --sql ./lexicon_schema.sql
 	cp lexicon.sqlite /tmp
 	perl lane.pl --db lexicon.sqlite --xrefs
 	perl lane.pl --db lexicon.sqlite --diacritics
 	perl lane.pl --db lexicon.sqlite --set-links
 buck:
-	perl lane.pl --db buck.sqlite --initdb --overwrite --no-convert --no-context  --dir ./xml --verbose --logbase buck
+	perl lane.pl --db buck.sqlite --initdb --overwrite --no-convert --no-context  --dir ./xml_originals --verbose --logbase buck
 	cp buck.sqlite /tmp
 	perl lane.pl --db buck.sqlite --set-links
 xmltojson:
