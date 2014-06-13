@@ -129,7 +129,7 @@ sub convErrors {
   my $fileprefix = shift;
   my $filedir = shift;
   my ($xml,$lineno,$root,$word,$vol,$text,$node,$errChar,$position,$page);
-  my ($fh,$outf,$out4f,$out5f);
+  my ($fh,$outf,$out4f,$out5f,$out6f);
   my @words;
   my $count = 0;
   my ($day,$month,$year) = (localtime)[3,4,5];
@@ -162,15 +162,34 @@ File       Line No   Root            Word                               Node    
 @<<<<<<<<<<@<<<<<<<<<@<<<<<<<<<<<<<<<@<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<@<<<<<<<<<<<@<<<<<<<<<<@<<<<<<@<<<<@<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
 $xml,$lineno,$root,$word,$node,$vol,$errChar,$position,$text
 .
+
+  format TYPE6_TOP =
+@<<<<<<<<<                                    Type 6 Error Report                                                                                                Page @<<<<
+$rundate,                                                                                                                                                                $%
+
+File       Line No    Root            Word                               Node         Vol/Page   Text
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+.
+
+  format TYPE6 =
+@<<<<<<<<<<@<<<<<<<<<<@<<<<<<<<<<<<<<<@<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<@<<<<<<<<<<<<@<<<<<<<<<<@<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
+$xml,$lineno,$root,$word,$node,$vol,$text
+.
+
+
+
   my @xmlfiles = qw(_A0 b0 t0 v0 j0 _H0 x0 d0 _0 r0 z0 s0 $0 _S0 _D0 _T0 _Z0 _E0 g0 f0 q0 k0 l0 m0 n0 h0 w0 _Y0 q1 k1 l1 m1 n1 h1 w1 _Y1);
 
 
   open $out4f, ">:encoding(UTF8)", "error_type4.txt";
   open $out5f, ">:encoding(UTF8)", "error_type5.txt";
+  open $out6f, ">:encoding(UTF8)", "error_type6.txt";
   $out4f->format_name("TYPE4");
   $out4f->format_top_name("TYPE4_TOP");
   $out5f->format_name("TYPE5");
   $out5f->format_top_name("TYPE5_TOP");
+  $out6f->format_name("TYPE6");
+  $out6f->format_top_name("TYPE6_TOP");
 
 
   if ($filedir =~ /\/$/) {
@@ -188,10 +207,12 @@ $xml,$lineno,$root,$word,$node,$vol,$errChar,$position,$text
     $xml = sprintf "%s.xml",$logfile;
     open $fh, "<",$file || return;
     <$fh>;
+    my $errType;
     while (<$fh>) {
       chomp;
       /^(\d+),/;
-      if ($1 == 4) {
+      $errType = $1;
+      if (($errType == 4) || ($errType == 6)) {
         @words = split ",",$_;
         $root = $words[2];
         if (length $words[3] > 30) {
@@ -207,7 +228,12 @@ $xml,$lineno,$root,$word,$node,$vol,$errChar,$position,$text
         } else {
           $lineno = "";
         }
+        if ($errType == 4) {
         write $out4f;
+      }
+        if ($errType == 6) {
+        write $out6f;
+      }
         # if (($out4f->format_lines_left == 0) && ($count > 0)) {
         #   my $x = $out4f;
         #   print $x sprintf "Total: %d",$count;
