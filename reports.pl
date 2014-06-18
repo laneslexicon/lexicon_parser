@@ -107,12 +107,9 @@ sub readDirectory {
   if (! -d $d ) {
     print STDERR "No such directory:[$d]\n";
     return @arr;
-
   }
   my @totals;
-
   eval {
-
     find sub { if ((-f $_) && ($File::Find::name =~ /$pattern/))  {  push @arr,$File::Find::name; } }, $d;
   };
 
@@ -126,8 +123,9 @@ sub readDirectory {
 #
 ###################################################
 sub convErrors {
-  my $fileprefix = shift;
   my $filedir = shift;
+  my $fileprefix = shift;
+  my $dbId = shift;
   my ($xml,$lineno,$root,$word,$vol,$text,$node,$errChar,$position,$page);
   my ($fh,$outf,$out4f,$out5f,$out6f);
   my @words;
@@ -136,8 +134,8 @@ sub convErrors {
   my $rundate = sprintf "%04d-%02d-%02d",$year+1900,$month+1,$day;
 
   format TYPE4_TOP =
-@<<<<<<<<<                                    Type 4 Error Report                                                                                                Page @<<<<
-$rundate,                                                                                                                                                                $%
+@<<<<<<<<<                                    Type 4 Error Report (@<<<<<<<<<<<<<<<)                                                                             Page @<<<<
+$rundate,$dbId,$%
 
 File       Line No    Root            Word                               Node         Vol/Page   Text
 ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------
@@ -150,8 +148,8 @@ $xml,$lineno,$root,$word,$node,$vol,$text
 
  format TYPE5_TOP =
 
-@<<<<<<<<<                                                 Type 5 Error Report                                                                                     Page @<<<<
-$rundate,                                                                                                                                            $%
+@<<<<<<<<<                                                 Type 5 Error Report (@<<<<<<<<<<<<<<<)                                                                Page @<<<<
+$rundate,$dbId,$%
 
 
 File       Line No   Root            Word                               Node        Vol/Page    Char   Pos  Text
@@ -164,8 +162,8 @@ $xml,$lineno,$root,$word,$node,$vol,$errChar,$position,$text
 .
 
   format TYPE6_TOP =
-@<<<<<<<<<                                    Type 6 Error Report                                                                                                Page @<<<<
-$rundate,                                                                                                                                                                $%
+@<<<<<<<<<                                    Type 6 Error Report (@<<<<<<<<<<<<<<<)                                                                             Page @<<<<
+$rundate,$dbId,$%
 
 File       Line No    Root            Word                               Node         Vol/Page   Text
 ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------
@@ -197,7 +195,7 @@ $xml,$lineno,$root,$word,$node,$vol,$text
   }
 
   foreach my $logfile (@xmlfiles) {
-    my $file = sprintf "%s/%s_%s_conv.log",$filedir,$fileprefix,$logfile;
+    my $file = sprintf "%s/%s-%s-%s-conv.log",$filedir,$fileprefix,$logfile,$dbId;
     if (! -e $file ) {
       print STDERR "Could not find file $file\n";
       next;
@@ -274,19 +272,21 @@ $xml,$lineno,$root,$word,$node,$vol,$text
 #   6:  A_ converted to I
 #######################################################################
 sub summaryStats {
-  my $fileprefix = shift;
   my $filedir = shift;
+  my $fileprefix = shift;
+  my $dbId = shift;
   my @xmlfiles = qw(_A0 b0 t0 v0 j0 _H0 x0 d0 _0 r0 z0 s0 $0 _S0 _D0 _T0 _Z0 _E0 g0 f0 q0 k0 l0 m0 n0 h0 w0 _Y0 q1 k1 l1 m1 n1 h1 w1 _Y1);
 
-  my $pattern = "lexicon[^\.]+conv.log\$";
+  my $pattern = sprintf "%s-[^\-]+%s-conv.log\$",$fileprefix,$dbId;
+  print STDERR "Pattern [$pattern]\n";
   my ($filename,$type2,$type3,$type4,$type5,$type6,$typeother);
   my ($fh,$outf);
   my ($day,$month,$year) = (localtime)[3,4,5];
   my $rundate = sprintf "%04d-%02d-%02d",$year+1900,$month+1,$day;
-  my @convfile =  readDirectory("/home/andrewsg/parse",$pattern);
+  my @convfile =  readDirectory($filedir,$pattern);
   format SUMMARY_TOP =
-   @<<<<<<<<<                           Error Summary                              Page @<<
-$rundate,$%
+   @<<<<<<<<<                           Error Summary (@<<<<<<<<<<<<<<<)w             Page @<<
+$rundate,$dbId,$%
 
    File       Double ?? (2)   Ampersand (3)   A-hat (4)   Non Buck (5)    A_ (6)     Other
    ----------------------------------------------------------------------------------------
@@ -303,13 +303,14 @@ $filename,$type2,$type3,$type4,$type5,$type6,$typeother
   }
 
   foreach my $logfile (@xmlfiles) {
-    my $file = sprintf "%s/%s_%s_conv.log",$filedir,$fileprefix,$logfile;
+    my $file = sprintf "%s/%s-%s-%s-conv.log",$filedir,$fileprefix,$logfile,$dbId;
+    print STDERR $file . "\n";
     if (! -e $file ) {
       print STDERR "Could not find file $file\n";
       next;
     }
    $type2 = $type3 = $type4 = $type5 = $type6 = $typeother = 0;
-   if ($file =~ /\w_([\w_\$]+)_conv.log/) {
+   if ($file =~ /-([^-]+)-([^-]+)-conv.log/) {
      $filename = sprintf "%s.xml",$1;
      open $fh, "<",$file || die $@;
      # skip the header
@@ -476,6 +477,7 @@ sub check_double_questions {
   }
    close $dqh;
 }
-check_double_questions("./xml_originals","lexicon.sqlite");
-summaryStats("lexicon","/home/andrewsg/parse");
-convErrors("lexicon","/home/andrewsg/parse");
+#check_double_questions("./xml_originals","lexicon.sqlite");
+my $dbid = "7b8df9eeafe2f897";
+summaryStats("/tmp","lexicon",$dbid);
+convErrors("/tmp","lexicon",$dbid);
