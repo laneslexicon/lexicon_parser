@@ -1070,7 +1070,6 @@ sub processRoot {
         $id = sprintf "%s-%d",$lastNodeId,$i;
       } else {
         $id = createId();
-        print STDERR "Created nodeId $id\n";
       }
       $entry->setAttribute("id",$id);
       $currentStatus[0] = "m";
@@ -1369,11 +1368,12 @@ sub parseDirectory {
   }
   my %audit;
   foreach my $h (@totals) {
-    print STDOUT sprintf "%30s %10d %10d %10d\n",
-      $h->{File},
-      $h->{"Root count"},
-      $h->{"Entry count"},
-      $h->{"Xref count"};
+
+    # print STDOUT sprintf "%30s %10d %10d %10d\n",
+    #   $h->{File},
+    #   $h->{"Root count"},
+    #   $h->{"Entry count"},
+    #   $h->{"Xref count"};
 
     my ($k,$b,$c) = fileparse($h->{File},qw(.xml));
     $audit{$k} = $h;
