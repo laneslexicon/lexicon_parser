@@ -12,7 +12,7 @@ use File::Find;
 use Data::Dumper;
 use Getopt::Long;
 use Time::HiRes qw( time );
-
+use FileHandle;
 my $onceOnly = 0;
 my $missingIdCount = 0;
 
@@ -108,6 +108,7 @@ my $linkCount = 0;
 my $arrowsCount = 0;
 my $unresolvedArrows = 0;
 #
+my $dbId = generateId();
 my $dbh = 0;
 my $writeCount = 0;
 my $totalWriteCount = 0;
@@ -1182,9 +1183,9 @@ sub getLogBase {
   }
   if (! $logbase ) {
     my $dt = POSIX::strftime "%y%m%d", localtime;
-    $base = $dt . "_" . $base;
+    $base = $dt . "-" . $base;
   } else {
-    $base = $logbase . "_" . $base;
+    $base = $logbase . "-" . $base;
   }
   return $base;
 }
@@ -1198,10 +1199,11 @@ sub openLogs {
 
 
   my $base = getLogBase($filename);
-  my $errlog = File::Spec->catfile($logDir,$base . "_err.log");
-  my $parselog = File::Spec->catfile($logDir,$base . "_parse.log");
-  my $convlog = File::Spec->catfile($logDir,$base . "_conv.log");
-  my $debuglog = File::Spec->catfile($logDir,$base . "_debug.log");
+  $base = sprintf "%s-%s", $base,$dbId;
+  my $errlog = File::Spec->catfile($logDir,$base . "-err.log");
+  my $parselog = File::Spec->catfile($logDir,$base . "-parse.log");
+  my $convlog = File::Spec->catfile($logDir,$base . "-conv.log");
+  my $debuglog = File::Spec->catfile($logDir,$base . "-debug.log");
   #  my $itypelog = File::Spec->catfile($logDir,$base . "_itype.log");
 
 
@@ -1355,8 +1357,7 @@ sub parseDirectory {
                      "General warning" => $genWarning,
                      "Xref count" => $xrefDbCount,
                      "Root count" => $rootDbCount,
-                     "Entry count" => $entryDbCount,
-                     "Elapse time" => $elapsedTime
+                     "Entry count" => $entryDbCount
                     }
     }
 
@@ -1366,14 +1367,29 @@ sub parseDirectory {
     print STDERR "File::Find error opening directory:[$d]\n";
     return;
   }
-
+  my %audit;
   foreach my $h (@totals) {
     print STDOUT sprintf "%30s %10d %10d %10d\n",
       $h->{File},
       $h->{"Root count"},
       $h->{"Entry count"},
       $h->{"Xref count"};
+
+    my ($k,$b,$c) = fileparse($h->{File},qw(.xml));
+    $audit{$k} = $h;
   }
+  my $str = Data::Dumper->Dump([\%audit],[qw(audit)]);
+
+  open AUD , ">","$dbId.txt";
+  print AUD $str;
+  close AUD;
+}
+
+sub generateId {
+  my  $str = sprintf("%0.8x",rand()*0xffffffff);
+  $str .= sprintf("%0.8x",rand()*0xffffffff);
+
+  return $str;
 }
 ################################################################
 #
@@ -2238,7 +2254,7 @@ sub writeSource {
   # create new entry
   if ($mode == 1) {
     eval {
-    $sth = $dbh->prepare("insert into lexicon (sourceid,description,createversion,createdate,xmlversion) values (?,?,?,?,?)");
+    $sth = $dbh->prepare("insert into lexicon (sourceid,description,createversion,createdate,xmlversion,dbid) values (?,?,?,?,?,?)");
     };
     if ($@) {
       print STDERR $@;
@@ -2249,6 +2265,7 @@ sub writeSource {
     $sth->bind_param(3,$version);
     $sth->bind_param(4,scalar(localtime()));
     $sth->bind_param(5,$xmlversion);
+    $sth->bind_param(6,$dbId);
     $sth->execute();
     $dbh->commit();
   }
