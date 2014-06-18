@@ -179,9 +179,9 @@ $xml,$lineno,$root,$word,$node,$vol,$text
   my @xmlfiles = qw(_A0 b0 t0 v0 j0 _H0 x0 d0 _0 r0 z0 s0 $0 _S0 _D0 _T0 _Z0 _E0 g0 f0 q0 k0 l0 m0 n0 h0 w0 _Y0 q1 k1 l1 m1 n1 h1 w1 _Y1);
 
 
-  open $out4f, ">:encoding(UTF8)", "error_type4.txt";
-  open $out5f, ">:encoding(UTF8)", "error_type5.txt";
-  open $out6f, ">:encoding(UTF8)", "error_type6.txt";
+  open $out4f, ">:encoding(UTF8)", "error_type4_$dbId.txt";
+  open $out5f, ">:encoding(UTF8)", "error_type5_$dbId.txt";
+  open $out6f, ">:encoding(UTF8)", "error_type6_$dbId.txt";
   $out4f->format_name("TYPE4");
   $out4f->format_top_name("TYPE4_TOP");
   $out5f->format_name("TYPE5");
@@ -278,7 +278,7 @@ sub summaryStats {
   my @xmlfiles = qw(_A0 b0 t0 v0 j0 _H0 x0 d0 _0 r0 z0 s0 $0 _S0 _D0 _T0 _Z0 _E0 g0 f0 q0 k0 l0 m0 n0 h0 w0 _Y0 q1 k1 l1 m1 n1 h1 w1 _Y1);
 
   my $pattern = sprintf "%s-[^\-]+%s-conv.log\$",$fileprefix,$dbId;
-  print STDERR "Pattern [$pattern]\n";
+
   my ($filename,$type2,$type3,$type4,$type5,$type6,$typeother);
   my ($fh,$outf);
   my ($day,$month,$year) = (localtime)[3,4,5];
@@ -295,7 +295,7 @@ $rundate,$dbId,$%
    @<<<<<<<<<<@<<<<<<<<<<<<<<<@<<<<<<<<<<<<<<<@<<<<<<<<<<<@<<<<<<<<<<<<<<<@<<<<<<<<<<@<<<<<
 $filename,$type2,$type3,$type4,$type5,$type6,$typeother
 .
-  open $outf, ">:encoding(UTF8)", "error_summary.txt";
+  open $outf, ">:encoding(UTF8)", "error_summary_$dbId.txt";
   $outf->format_name("SUMMARY");
   $outf->format_top_name("SUMMARY_TOP");
   if ($filedir =~ /\/$/) {
@@ -304,7 +304,6 @@ $filename,$type2,$type3,$type4,$type5,$type6,$typeother
 
   foreach my $logfile (@xmlfiles) {
     my $file = sprintf "%s/%s-%s-%s-conv.log",$filedir,$fileprefix,$logfile,$dbId;
-    print STDERR $file . "\n";
     if (! -e $file ) {
       print STDERR "Could not find file $file\n";
       next;
