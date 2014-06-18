@@ -494,7 +494,7 @@ sub processForm {
       if ($n->nodeName eq "n") {
         my $v = $n->nodeValue;
         if ($v eq "infl") {
-          # do something with it?
+          # this is done in vowelling code
         } elsif ( $v ) {
           $debug && print $dlog "<form> with non-infl type: $v\n";
         }
@@ -560,10 +560,11 @@ sub processForm {
   }
   return;
 }
-################################################################
+#####################################################################
 #
+# this is where itype promotion happens as part of <form> processing
 #
-################################################################
+####################################################################
 sub processNode {
   my $node = shift;
   my $nodeName;
@@ -1002,7 +1003,7 @@ sub processRoot {
     }
   }
   #
-  # write root record ?
+  # write root record
   #
   if ($entryCount > 0) {
     writeRoot(convertString($currentRoot,"root",$rootLineNumber),$currentRoot,$currentLetter,$quasiRoot,scalar(@alternates));
@@ -1013,11 +1014,14 @@ sub processRoot {
       }
     }
   }
+  #
+  # Process each <entryFree> for the root
+  #
   for (my $i=0;$i < $entryCount;$i++) {
     my $entry = $entries->item($i);
     $entryLineNumber = $entry->line_number();
     $currentText = $entry->toString;
-#    print sprintf "Processing entryFree %d [ %s  ]\n",$entryLineNumber,$entry->nodeName;
+    #    print sprintf "Processing entryFree %d [ %s  ]\n",$entryLineNumber,$entry->nodeName;
     my $id;
     my $key;
     my $ar_key;
@@ -1038,117 +1042,132 @@ sub processRoot {
         $skipRoot = 1;
         $skipRootCount++;
         $verbose && print $plog "Root [$currentRoot] skipped, <see supplement> entry\n";
+        next;
       }
     }
-    if (! $skipRoot ) {
-      $idAttr = $entry->getAttributeNode("id");
-      if ($idAttr) {
-        $id = $idAttr->getValue();
+
+    #
+    # get the node id of form nNNNNN
+    # often (?) verb forms don't have either a node or key they just have something like:
+    #  <entryFree>
+    #    <form>
+    #      <itype>2</itype>
+    #     <orth lang="ar">$aA~a^a</orth>
+    #    </form>
+    #  </entryFree>
+    #
+    # A nodeId is created by appending the entry index ($i) to the last node id
+    # Eg n21492-7 means that the entry with this node id is the seventh entry for
+    # the current root and that it occurs after the known entry with id n21492
+    #
+    $idAttr = $entry->getAttributeNode("id");
+    if ($idAttr) {
+      $id = $idAttr->getValue();
+    } else {
+      $verbose && print $plog "Node has no ID:" . $entry->toString . "\n";
+      if ( $lastNodeId ) {
+        $id = sprintf "%s-%d",$lastNodeId,$i;
       } else {
-        $verbose && print $plog "Node has no ID:" . $entry->toString . "\n";
-        if ( $lastNodeId ) {
-          $id = sprintf "%s-%d",$lastNodeId,$i;
-        } else {
-          $id = createId();
-          print STDERR "Created nodeId $id\n";
-        }
-        $entry->setAttribute("id",$id);
-        $currentStatus[0] = "m";
+        $id = createId();
+        print STDERR "Created nodeId $id\n";
       }
-      $keyAttr = $entry->getAttributeNode("key");
-      if ($keyAttr) {
-        $key = $keyAttr->getValue();
-        if (! $key ) {
-          $verbose && print $plog "Node has no key:" . $entry->toString . "\n";
-          $entryFreeWithoutKey++;
-          $currentStatus[1] = "k";
-        } else {
-          $currentWord = $key;
-        }
-        #=============================
-        # alef wasla  TODO ?
-        #=============================
-        $currentWord =~ s/A@/L/g;
+      $entry->setAttribute("id",$id);
+      $currentStatus[0] = "m";
+    }
+    $keyAttr = $entry->getAttributeNode("key");
+    if ($keyAttr) {
+      $key = $keyAttr->getValue();
+      if (! $key ) {
+        $verbose && print $plog "Node has no key:" . $entry->toString . "\n";
+        $entryFreeWithoutKey++;
+        $currentStatus[1] = "k";
+      } else {
+        $currentWord = $key;
       }
-      if ($id ) {
-        $currentNodeId = $id;
-        $convertMode = 0;
-        traverseNode($entry->getFirstChild);
-        my $numeric = " ";
-        # these indicate vowelling on the root letters
-        if ($currentWord =~ /1|2|3/) {
-          my $t = $currentWord;
-          $currentWord = convertVowelling($currentRoot,$currentWord,2);
-          $currentStatus[2] = "s";
-          $verbose && print $plog "At node $currentNodeId: change $t -> $currentWord\n";
-        } elsif ($currentWord =~ /\d/) {
-          $numeric = "n";
-          $currentStatus[5] = "n";
-        }
-        $entry->setAttribute("key",encode("UTF-8",$currentWord));
-        my $status = join "",@currentStatus; #$numeric,
-        print $plog sprintf "[%03d][%06d][%s]>>> %5s%7s %-30s%-5s %s\n",
-          $i,
-          length $currentText,
+      #=============================
+      # alef wasla  TODO ?
+      #=============================
+      $currentWord =~ s/A@/L/g;
+    }
+    if ( ! $id ) {
+      print $plog "Parse warning 4: No ID field\n";
+      $genWarning++;
+      next;
+    }
+    $currentNodeId = $id;
+    $convertMode = 0;
+    traverseNode($entry->getFirstChild);
+    my $numeric = " ";
+    # these indicate vowelling on the root letters
+    if ($currentWord =~ /1|2|3/) {
+      my $t = $currentWord;
+      $currentWord = convertVowelling($currentRoot,$currentWord,2);
+      $currentStatus[2] = "s";
+      $verbose && print $plog "At node $currentNodeId: change $t -> $currentWord\n";
+    } elsif ($currentWord =~ /\d/) {
+      $numeric = "n";
+      $currentStatus[5] = "n";
+    }
+    $entry->setAttribute("key",encode("UTF-8",$currentWord));
+    my $status = join "",@currentStatus; #$numeric,
+    print $plog sprintf "[%03d][%06d][%s]>>> %5s%7s %-30s%-5s %s\n",
+      $i,
+        length $currentText,
           $status,
-          $currentRoot,
-          $currentNodeId,
-          $currentWord,
-          $currentItype,
-          join ",", @currentForms;
-        if ($currentNodeId && $currentWord) {
-          #
-          #  We can now update the database but first convert any buckwalter transliteration
-          #
-          #  not efficient as we have already traversed the node but want to separate
-          #  out the buckwalter conversion by cloning the node so that we can write out the
-          #  XML that has been 'fixed' and use it to generate any diff's from the original.
-          #
-          my $xml;
-          #          if (! $skipConvert ) {
-          my $clone = $entry->cloneNode(1);
-          if ($clone->nodeType == XML_ELEMENT_NODE) {
-            $convertMode = 1;
-            traverseNode($clone);
-            $clone->setAttribute("key",convertString($currentWord,"word",$entry->line_number()));
-            $xml =  $clone->toString;
-          } else {
-            print $elog "Error cloning node for transliteration:$currentNodeId,$currentWord";
-          }
-          if (! $xml ) {
-            $xml = $entry->toString;
-          }
-          $xml = insertSenses($xml);
-          #          }
-          #
-          # update db
-          #
-          my $ok = writeEntry(convertString($currentRoot,"root",$rootLineNumber),$currentRoot,
-                     convertString($currentWord,"word",$entryLineNumber),
-                     $currentItype,$currentNodeId,$currentWord,$xml);
-          #
-          #
-          #
-          if ($ok && ($#currentForms != -1)) {
-            writeOrths($currentNodeId,
-                       convertString($currentRoot,"root",$rootLineNumber),
-                       $currentRoot,
-                       @currentForms);
-          }
-          if ($currentNodeId !~ /-/) {
-            $lastNodeId = $currentNodeId;
-          }
-        } else {
-          print $plog "Parse warning 3: No node or word\n";
-          $genWarning++;
-        }
+            $currentRoot,
+              $currentNodeId,
+                $currentWord,
+                  $currentItype,
+                    join ",", @currentForms;
+    if ($currentNodeId && $currentWord) {
+      #
+      #  We can now update the database but first convert any buckwalter transliteration
+      #
+      #  not efficient as we have already traversed the node but want to separate
+      #  out the buckwalter conversion by cloning the node so that we can write out the
+      #  XML that has been 'fixed' and use it to generate any diff's from the original.
+      #
+      my $xml;
+      #          if (! $skipConvert ) {
+      my $clone = $entry->cloneNode(1);
+      if ($clone->nodeType == XML_ELEMENT_NODE) {
+        $convertMode = 1;
+        traverseNode($clone);
+        $clone->setAttribute("key",convertString($currentWord,"word",$entry->line_number()));
+        $xml =  $clone->toString;
       } else {
-        print $plog "Parse warning 4: No ID field\n";
-        $genWarning++;
+        print $elog "Error cloning node for transliteration:$currentNodeId,$currentWord";
       }
+      if (! $xml ) {
+        $xml = $entry->toString;
+      }
+      $xml = insertSenses($xml);
+      #          }
+      #
+      # update db
+      #
+      my $ok = writeEntry(convertString($currentRoot,"root",$rootLineNumber),$currentRoot,
+                          convertString($currentWord,"word",$entryLineNumber),
+                          $currentItype,$currentNodeId,$currentWord,$xml);
+      #
+      #
+      #
+      if ($ok && ($#currentForms != -1)) {
+        writeOrths($currentNodeId,
+                   convertString($currentRoot,"root",$rootLineNumber),
+                   $currentRoot,
+                   @currentForms);
+      }
+      if ($currentNodeId !~ /-/) {
+        $lastNodeId = $currentNodeId;
+      }
+    } else {
+      print $plog "Parse warning 3: No node or word\n";
+      $genWarning++;
     }
   }
 }
+
 sub getLogBase {
   my $filename = shift;
   my ($base,$p,$suffix) = fileparse($filename,'\..*');
@@ -2216,7 +2235,7 @@ sub writeSource {
   $version =~ s/\n//g;
   my $xmlversion = `cat XMLVERSION`;
   $xmlversion =~ s/\n//g;
-
+  # create new entry
   if ($mode == 1) {
     eval {
     $sth = $dbh->prepare("insert into lexicon (sourceid,description,createversion,createdate,xmlversion) values (?,?,?,?,?)");
@@ -2235,7 +2254,7 @@ sub writeSource {
   }
   elsif ($mode == 2) {
     eval {
-    $sth = $dbh->prepare("update lexicon set updateversion = ?,updatedate = ?,set xmlversion = ? where id = ?");
+    $sth = $dbh->prepare("update lexicon set updateversion = ?,updatedate = ?,xmlversion = ? where id = ?");
     };
     if ($@) {
       print STDERR $@;
