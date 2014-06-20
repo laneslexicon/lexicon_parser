@@ -1970,8 +1970,8 @@ sub setLinks {
 #
 sub updateXrefs {
   my $sth =  $dbh->prepare("select id,node from xref where datasource = 1");
-  my $uh = $dbh->prepare("update xref set root = ?,broot = ?,entry = ?,bentry = ? where id = ?");
-  my $lh = $dbh->prepare("select root,broot,word,bword from entry where nodeId = ? and datasource = 1");
+  my $uh = $dbh->prepare("update xref set root = ?,broot = ?,entry = ?,bentry = ?,nodenum = ? where id = ?");
+  my $lh = $dbh->prepare("select root,broot,word,bword,nodenum from entry where nodeId = ? and datasource = 1");
   if (! $sth || ! $uh || ! $lh) {
     print STDERR "Error preparing update xref SQL";
     return;
@@ -1989,6 +1989,7 @@ sub updateXrefs {
       $uh->bind_param(3,$entry[2]);
       $uh->bind_param(4,$entry[3]);
       $uh->bind_param(5,$xref[0]);
+      $uh->bind_param(6,$entry[4]);
       $uh->execute();
       $writeCount++;
       if ($writeCount > $commitCount) {

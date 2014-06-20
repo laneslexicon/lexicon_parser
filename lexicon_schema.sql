@@ -6,7 +6,7 @@ CREATE TABLE orth (id integer primary key, datasource integer,entryid integer,fo
 CREATE INDEX 'word_index' on entry (word asc);
 CREATE INDEX 'broot_index' on entry (broot asc);
 CREATE INDEX 'root_index' on entry (root asc);
-CREATE TABLE xref (id INTEGER primary key,datasource integer,word TEXT,bword text,node TEXT,type INTEGER,page integer, bentry text, entry text, broot text, root text, bareword text);
+CREATE TABLE xref (id INTEGER primary key,datasource integer,word TEXT,bword text,node TEXT,type INTEGER,page integer, bentry text, entry text, broot text, root text, bareword text,nodenum real);
 CREATE INDEX 'letter_index' on root (letter asc);
 CREATE INDEX 'nodenum_index' on entry (nodenum asc);
 CREATE INDEX 'nodenum_index_desc' on entry (nodenum desc);
@@ -15,6 +15,7 @@ CREATE INDEX 'supp_word_index' on root (supplement asc,word asc);
 CREATE INDEX 'node_index' on entry (nodeId asc);
 CREATE INDEX 'xref_bword' on xref (bword asc);
 CREATE INDEX 'xref_word' on xref (word asc);
+CREATE INDEX 'xref_nodenum' on xref (nodenum asc);
 CREATE INDEX 'bareword_index' on entry (bareword asc);
 CREATE INDEX page_index on entry (page asc);
 CREATE TABLE lexicon (id integer primary key, sourceid integer,description text,createversion text,createdate text,updateversion text,updatedate text,xmlversion text,dbid text);
