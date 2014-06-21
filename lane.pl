@@ -1978,6 +1978,7 @@ sub updateXrefs {
   }
   $sth->execute();
   $writeCount = 0;
+  my $nodenum;
   while (my @xref = $sth->fetchrow_array()) {
     # get the entry
     $lh->bind_param(1,$xref[1]);
@@ -1988,8 +1989,9 @@ sub updateXrefs {
       $uh->bind_param(2,$entry[1]);
       $uh->bind_param(3,$entry[2]);
       $uh->bind_param(4,$entry[3]);
-      $uh->bind_param(5,$xref[0]);
-      $uh->bind_param(6,$entry[4]);
+      $nodenum = $entry[4];
+      $uh->bind_param(5,$entry[4]);
+      $uh->bind_param(6,$xref[0]);
       $uh->execute();
       $writeCount++;
       if ($writeCount > $commitCount) {
@@ -1999,7 +2001,7 @@ sub updateXrefs {
       }
     }
   }
-
+  $dbh->commit();
 }
 
 sub stripDiacritics {
