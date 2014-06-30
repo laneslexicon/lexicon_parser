@@ -476,7 +476,7 @@ sub check_double_questions {
   }
    close $dqh;
 }
-#check_double_questions("./xml_originals","lexicon.sqlite");
-my $dbid = "7b8df9eeafe2f897";
+check_double_questions("../xml","lexicon.sqlite");
+my $dbid = "7ce02143079015c9";
 summaryStats("/tmp","lexicon",$dbid);
 convErrors("/tmp","lexicon",$dbid);

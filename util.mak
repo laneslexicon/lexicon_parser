@@ -32,7 +32,7 @@ testentry:
               -o:/tmp/test$${N}.html
 small:
 	./version.sh
-	perl lane.pl --db test.sqlite --initdb --overwrite --xml ./test/test_j0.xml --no-context --verbose --logbase test --sql ./lexicon_schema.sql
+	perl lane.pl --db test.sqlite --initdb --overwrite --xml ./test/test_itype.xml --no-context --logbase test --sql ./lexicon_schema.sql
 jeem:
 	./version.sh
 	perl lane.pl --db jeem.sqlite --initdb --overwrite --xml ../xml/j0.xml --no-context --verbose --logbase jeem --sql ./lexicon_schema.sql
