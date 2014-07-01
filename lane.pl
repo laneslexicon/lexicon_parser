@@ -945,6 +945,29 @@ sub insertSenses {
   $x .= substr($xml,$lastpos);
   return $x;
 }
+sub insertTropical {
+  my $xml = shift;
+  my $t;
+  my $x;
+  my $r;
+  my $lastpos = 0;
+  while ($xml =~  /(\(\s*(assumed)*\s*tropical\s*[:]*\s*\))/g) {
+    $t = $1;
+    if ($t =~ /assumed/) {
+      $r = sprintf "<assumedtropical>%s</assumedtropical>",$t;
+    }
+    else {
+      $r = sprintf "<tropical>%s</tropical>",$t;
+    }
+    if ($t) {
+      $x .= substr($xml,$lastpos,pos($xml) - $lastpos - length($t));
+      $x .= $r;
+      $lastpos = pos($xml);
+    }
+  }
+  $x .= substr($xml,$lastpos);
+  return $x;
+}
 ################################################################
 #
 #
@@ -1142,6 +1165,7 @@ sub processRoot {
         $xml = $entry->toString;
       }
       $xml = insertSenses($xml);
+      $xml = insertTropical($xml);
       #          }
       #
       # update db
