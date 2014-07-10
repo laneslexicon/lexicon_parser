@@ -52,6 +52,7 @@ my $logbase = "";               # forms part of the log file name
 my $linkletter = ""; # just set links for words whose root begins with this letter
 my $rootLineNumber;
 my $entryLineNumber;
+my $withPerseus = 0;
 my %tags;
 #
 #   --dbname latest.sqlite --scan-arrows
@@ -80,7 +81,8 @@ GetOptions (
             "sql=s"  => \$sqlSource, # SQL used to init db
             "db=s" => \$dbname,
             "xrefs" => \$xrefMode,
-            "diacritics" => \$diacriticsMode
+            "diacritics" => \$diacriticsMode,
+            "with-perseus" => \$withPerseus
            )
   or die("Error in command line arguments\n");
 
@@ -643,7 +645,7 @@ sub writeEntry {
   my $node = shift;
   my $bword = shift;
   my $xml  = shift;
-
+  my $perseusxml = shift;
   my $ret = 0;
   $debug && print $dlog "ENTRY write: [$root][$broot][$word][$itype][$bword][$node]\n";
 
@@ -672,7 +674,7 @@ sub writeEntry {
   $entrysth->bind_param(9,$currentFile);
   $entrysth->bind_param(10,$currentPage);
   $entrysth->bind_param(11,$nodenum);
-
+  $entrysth->bind_param(12,$perseusxml);
   if ($entrysth->execute()) {
     $entryDbCount++;
     $writeCount++;
@@ -1151,6 +1153,10 @@ sub processRoot {
       #  XML that has been 'fixed' and use it to generate any diff's from the original.
       #
       my $xml;
+      my $perseusxml;
+      if ($withPerseus) {
+       $perseusxml = $entry->toString;
+      }
       #          if (! $skipConvert ) {
       my $clone = $entry->cloneNode(1);
       if ($clone->nodeType == XML_ELEMENT_NODE) {
@@ -1172,7 +1178,7 @@ sub processRoot {
       #
       my $ok = writeEntry(convertString($currentRoot,"root",$rootLineNumber),$currentRoot,
                           convertString($currentWord,"word",$entryLineNumber),
-                          $currentItype,$currentNodeId,$currentWord,$xml);
+                          $currentItype,$currentNodeId,$currentWord,$xml,$perseusxml);
       #
       #
       #
@@ -2177,7 +2183,7 @@ END
   #
   eval {
     $xrefsth = $dbh->prepare("insert into xref (datasource,word,bword,node) values (1,?,?,?)");
-    $entrysth = $dbh->prepare("insert into entry (datasource,root,broot,word,itype,nodeId,bword,xml,supplement,file,nodenum) values (1,?,?,?,?,?,?,?,?,?,?)");
+    $entrysth = $dbh->prepare("insert into entry (datasource,root,broot,word,itype,nodeId,bword,xml,supplement,file,nodenum,perseusxml) values (1,?,?,?,?,?,?,?,?,?,?,?)");
     $rootsth = $dbh->prepare("insert into root (datasource,word,bword,letter,bletter,supplement) values (1,?,?,?,?,?)");
     $lookupsth = $dbh->prepare("select id,bword,nodeId from entry where word = ? and datasource = 1");
   };
@@ -2366,7 +2372,7 @@ if (! $dryRun ) {
   #
   eval {
     $xrefsth = $dbh->prepare("insert into xref (datasource,word,bword,node,page,type) values (1,?,?,?,?,?)");
-    $entrysth = $dbh->prepare("insert into entry (datasource,root,broot,word,itype,nodeId,bword,xml,supplement,file,page,nodenum) values (1,?,?,?,?,?,?,?,?,?,?,?)");
+    $entrysth = $dbh->prepare("insert into entry (datasource,root,broot,word,itype,nodeId,bword,xml,supplement,file,page,nodenum,perseusxml) values (1,?,?,?,?,?,?,?,?,?,?,?,?)");
     $rootsth = $dbh->prepare("insert into root (datasource,word,bword,letter,bletter,supplement,quasi,alternates,page) values (1,?,?,?,?,?,?,?,?)");
     $alternatesth = $dbh->prepare("insert into alternate (datasource,word,bword,letter,bletter,supplement,quasi,alternate) values (1,?,?,?,?,?,?,?)");
     # these are for the set-links searches
