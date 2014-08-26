@@ -5,6 +5,7 @@ use File::Find;
 use English;
 use FileHandle;
 use DBI;
+use Encode;
 use XML::LibXML;
 my $dbh;
 binmode STDERR, ":encoding(UTF-8)";
@@ -285,7 +286,7 @@ sub summaryStats {
   my $rundate = sprintf "%04d-%02d-%02d",$year+1900,$month+1,$day;
   my @convfile =  readDirectory($filedir,$pattern);
   format SUMMARY_TOP =
-   @<<<<<<<<<                           Error Summary (@<<<<<<<<<<<<<<<)w             Page @<<
+   @<<<<<<<<<                           Error Summary (@<<<<<<<<<<<<<<<)             Page @<<
 $rundate,$dbId,$%
 
    File       Double ?? (2)   Ampersand (3)   A-hat (4)   Non Buck (5)    A_ (6)     Other
@@ -476,7 +477,56 @@ sub check_double_questions {
   }
    close $dqh;
 }
-check_double_questions("../xml","lexicon.sqlite");
-my $dbid = "7ce02143079015c9";
-summaryStats("/tmp","lexicon",$dbid);
+sub wrong_letter {
+  my $db = shift;
+  my $dbid = shift;
+  openDb($db);
+  my $sth = $dbh->prepare("select id,word,bword,letter,bletter,supplement,page from root");
+  $sth->execute();
+  my $word;
+  my $bword;
+  my $letter;
+  my $rootrec;
+  my $id;
+  my $page;
+  my $vol;
+  format LETTER_TOP =
+@<<<<<<<<<<<<<<<<  Wrong letter report                     Page @>>>
+$dbid,                                                          $%
+                   ===================
+Id              Letter          Root                        Vol/Page
+-------------------------------------------------------------------
+.
+  format LETTER =
+@<<<<<<<<<<<<<<<@<<<<<<<<<<<<<<<@<<<<<<<<<<<<<<<<<<<<<<<<<<<V@/@<<<
+$id,            $letter,        $word,                       $vol,$page
+.
+  my $fh;
+  open($fh,">:encoding(UTF8)","wrong_letter_$dbid.txt");
+  $fh->format_name("LETTER");
+  $fh->format_top_name("LETTER_TOP");
+  while ($rootrec = $sth->fetchrow_arrayref) {
+    $bword = $rootrec->[2];
+    $word = decode("UTF-8",$rootrec->[1]);
+    $letter = decode("UTF-8",$rootrec->[3]);
+    $page = $rootrec->[6];
+    $vol = getVolForPage($page);
+    $id = $rootrec->[0];
+
+    if ((substr $word,0,1) ne $letter) {
+#      print STDOUTDERR sprintf "%d %s %s (%d,%d)\n",$rootrec->[0],$letter,$word,
+#        $rootrec->[5],$rootrec->[6];
+#      print STDOUT $id,$letter,$word,$page;
+      write $fh;
+    }
+  }
+  $fh->close;
+}
+my $db = "lexicon.sqlite";
+#check_double_questions("../xml",$db);
+my $dbid;
+$dbid  = "b58b102ec5a2f1d7";
+$dbid = "2f0d0cfdfd04a98d";
+  summaryStats("/tmp","lexicon",$dbid);
 convErrors("/tmp","lexicon",$dbid);
+wrong_letter($db,$dbid);
