@@ -316,6 +316,18 @@ sub convertString {
       }
     }
   }
+# Following regex from:
+# https://stackoverflow.com/questions/3845518/how-do-i-convert-escaped-characters-into-actual-special-characters-in-perl
+#
+      $t=~s/\\(
+        (?:[arnt'"\\]) |               # Single char escapes
+        (?:[ul].) |                    # uc or lc next char
+        (?:x[0-9a-fA-F]{2}) |          # 2 digit hex escape
+        (?:x\{[0-9a-fA-F]+\}) |        # more than 2 digit hex
+        (?:\d{2,3}) |                  # octal
+        (?:N\{U\+[0-9a-fA-F]{2,4}\})   # unicode by hex
+        )/"qq|\\$1|"/geex;
+
   #  $t =~ s/&amp;c/ /g);
   my $c = 0;
   $c += ($t =~ tr/'|OWI}A/\x{621}\x{622}\x{623}\x{624}\x{625}\x{626}\x{627}/);
@@ -328,7 +340,7 @@ sub convertString {
   $c += ($t =~ tr/i~o`{/\x{650}\x{651}\x{652}\x{670}\x{671}/);
 
 
-  $c += ($t =~ tr/PJVG/\x{67e}\x{686}\x{6a4}\x6af}/);
+  $c += ($t =~ tr/PJVGB/\x{67e}\x{686}\x{6a4}\x{6af}\x{698}/);
   # ^ as hamza above
   # = alef with madda above (in buckwalter docs is |)
   # _ tatweel , also - above
