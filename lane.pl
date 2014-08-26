@@ -1423,7 +1423,7 @@ sub parseDirectory {
   }
   my $str = Data::Dumper->Dump([\%audit],[qw(audit)]);
 
-  open AUD , ">","$dbId.txt";
+  open AUD , ">","audit_$dbId.txt";
   print AUD $str;
   close AUD;
 }
