@@ -2,6 +2,7 @@
 .PHONY:	split
 .PHONY:	splitall
 .PHONY: testentry
+.PHONY: test
 XMLFILES := $(wildcard ./tmp/*.xml)
 #
 # these are for testing various XLST
@@ -30,12 +31,18 @@ testentry:
               -t -xsl:./xslt/tei.xsl \
               -s:/tmp/lane/entry_n$${N}.xml \
               -o:/tmp/test$${N}.html
-small:
+
+
+# in the test directory, copy test_skel.xml as <name>.xml and insert the root entry at the place indicated
+# then run this:
+# make -f util.mak xml=<name> test
+# and it will look for <name>.xml and output <name>.sqlite
+test:
 	./version.sh
-	perl lane.pl --db test.sqlite --initdb --overwrite --xml ./test/test_itype.xml --no-context --logbase test --sql ./lexicon_schema.sql
+	perl lane.pl --db ${xml}.sqlite --initdb --overwrite --xml ./test/${xml}.xml --no-context --logbase test --sql ./lexicon_schema.sql
 jeem:
 	./version.sh
-	perl lane.pl --db jeem.sqlite --initdb --overwrite --xml ../xml/j0.xml --no-context --verbose --logbase jeem --sql ./lexicon_schema.sql
+	perl lane.pl --db jeem.sqlite --initdb --overwrite --xml ../xml/_H0.xml --no-context --verbose --logbase jeem --sql ./lexicon_schema.sql --with-perseus
 #	cp jeem.sqlite /tmp
 #	perl lane.pl --db jeem.sqlite --set-links
 lexicon:
