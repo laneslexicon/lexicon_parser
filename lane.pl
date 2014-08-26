@@ -328,6 +328,7 @@ sub convertString {
   $c += ($t =~ tr/i~o`{/\x{650}\x{651}\x{652}\x{670}\x{671}/);
 
 
+  $c += ($t =~ tr/PJVG/\x{67e}\x{686}\x{6a4}\x6af}/);
   # ^ as hamza above
   # = alef with madda above (in buckwalter docs is |)
   # _ tatweel , also - above
@@ -1393,7 +1394,7 @@ sub parseDirectory {
   };
 
   if ($@) {
-    print STDERR "File::Find error opening directory:[$d]\n";
+    print STDERR "File::Find error opening directory:[$d]  : $@\n";
     return;
   }
   my %audit;
