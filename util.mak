@@ -3,6 +3,7 @@
 .PHONY:	splitall
 .PHONY: testentry
 .PHONY: test
+.PHONY: onefile
 XMLFILES := $(wildcard ./tmp/*.xml)
 #
 # these are for testing various XLST
@@ -40,9 +41,13 @@ testentry:
 test:
 	./version.sh
 	perl lane.pl --db ${xml}.sqlite --initdb --overwrite --xml ./test/${xml}.xml --no-context --logbase test --sql ./lexicon_schema.sql
-jeem:
+#
+# use this test a single Perseus file
+#
+#
+onefile:
 	./version.sh
-	perl lane.pl --db jeem.sqlite --initdb --overwrite --xml ../xml/_H0.xml --no-context --verbose --logbase jeem --sql ./lexicon_schema.sql --with-perseus
+	perl lane.pl --db ${xml}.sqlite --initdb --overwrite --xml ../xml/${xml}.xml --no-context --verbose --logbase ${xml} --sql ./lexicon_schema.sql --with-perseus
 #	cp jeem.sqlite /tmp
 #	perl lane.pl --db jeem.sqlite --set-links
 lexicon:
