@@ -293,7 +293,7 @@ sub convertString {
   if ($proctype ne "link") {
     if ($t =~ /\?\?/) {
       writelog($blog,sprintf "2,%s,%s,%s,%s,V%d/%d,%s", $currentRoot,$currentWord,$currentNodeId,$t,getVolForPage($currentPage),$currentPage,$lineno);
-      return $t;
+#      return $t;
     }
     # convert all A@ to L
     if ($t =~ /A@/) {
@@ -351,9 +351,6 @@ sub convertString {
 #  $c += ($t =~ tr/PJVG/\x{67e}\x{686}\x{6a4}\x{6af}/);
 
 
-  # count the spaces etc
-  my $r = $t;
-  my $spaces = ($r =~ s/ / /g);
   my $sz = length $t;
   my $j = 0;
 
@@ -394,6 +391,7 @@ sub convertString {
       }
     }
   }
+
   if ($j > 0) {
     $conversionErrors++;
 
@@ -2042,6 +2040,68 @@ sub updateXrefs {
         #           $dbh->begin_work();
         $writeCount = 0;
       }
+    }
+  }
+  $dbh->commit();
+}
+####################################################################
+# without running this supplement entries with itypes appear at the
+# end of the entries. This code merges them with the other itypes
+####################################################################
+sub fix_supplement_itype {
+  my $sth = $dbh->prepare("select id,broot,root,word,itype,nodeId,nodenum,file from entry where supplement = 1 and itype != \"\" order by id asc");
+  my $dup = $dbh->prepare("select id,root,word,itype,nodeid,nodenum,file from entry where root = ?  and supplement = 0 order by nodenum asc");
+
+  my $numh = $dbh->prepare("select id,nodenum from entry where nodenum < ? order by nodenum desc");
+  my $updateh = $dbh->prepare("update entry set nodenum = ? where id = ?");
+
+  my $rec;
+  my $duprec;
+  my $root;
+  my $itype;
+
+  $sth->execute();
+  my @candidates;
+  while ($rec = $sth->fetchrow_hashref) {
+    $root = decode("UTF-8",$rec->{root});
+    $itype = $rec->{itype};
+    if ($itype !~ /^\d+$/) {
+      next;
+    }
+    $dup->bind_param(1,$root);
+    $dup->execute();
+    $duprec = $dup->fetchrow_hashref;
+    next unless $duprec;    # ignore if no matching root in main text
+    push @candidates, $rec;
+  }
+#  print STDERR "Candidate count:" . scalar(@candidates) . "\n";
+
+  foreach my $c (@candidates) {
+    my $p = get_insert_point($c);
+    if ($p) {
+      $numh->bind_param(1,$p->{nodenum});
+      $numh->execute();
+      my $prior = $numh->fetchrow_hashref;
+      if ($prior) {
+        my $n = ($p->{nodenum} - $prior->{nodenum})/2;
+        $n += $prior->{nodenum};
+#        print sprintf "Insert between %f %f = %f\n",$prior->{nodenum},$p->{nodenum},$n;
+        $updateh->bind_param(1,$n);
+        $updateh->bind_param(2,$c->{id});
+        if ($updateh->execute()) {
+#          print STDERR sprintf "Root %s, update node %s, nodenum set %f\n",$c->{broot},$c->{nodeId},$n;
+        }
+        else {
+#          print STDERR sprintf "Error updating node %s\n",$c->{nodeId};
+        }
+      }
+      else {
+#        print STDERR "No prior nodenum record for root %s, node %s, using nodenum %f from \n",$c->{broot},$c->{nodeId},$p->{nodenum},$p->{nodeid};
+      }
+
+    }
+    else {
+#      print STDERR "Cannot find insert point for root %s, node %s\n",$c->{broot},$c->{nodeId};
     }
   }
   $dbh->commit();
