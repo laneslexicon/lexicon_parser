@@ -47,12 +47,15 @@ my $convertMode = 0;
 my $tagsMode = 0;
 my $arrowMode = 0;
 my $xrefMode = 0;
+my $supplementItypeMode = 0;
 my $diacriticsMode = 0;
 my $logbase = "";               # forms part of the log file name
 my $linkletter = ""; # just set links for words whose root begins with this letter
 my $rootLineNumber;
 my $entryLineNumber;
 my $withPerseus = 0;
+my $testConversionMode = 0;
+my $noLogging = 0;
 my %tags;
 #
 #   --dbname latest.sqlite --scan-arrows
@@ -60,6 +63,7 @@ my %tags;
 #
 GetOptions (
             "logbase=s" => \$logbase,
+            "no-logs" => \$noLogging,
             "scan-arrows" => \$arrowMode,
             "scan-tags" => \$tagsMode,
             "set-links" => \$linksMode,
@@ -82,7 +86,9 @@ GetOptions (
             "db=s" => \$dbname,
             "xrefs" => \$xrefMode,
             "diacritics" => \$diacriticsMode,
-            "with-perseus" => \$withPerseus
+            "with-perseus" => \$withPerseus,
+            "supplement-itypes" => \$supplementItypeMode,
+            "test-conversion=s" => \$testConversionMode
            )
   or die("Error in command line arguments\n");
 
@@ -127,12 +133,12 @@ my $orthsth;
 my $updateNode; # set links uses to check if the node xml needs saving
 #
 
-my $currentNodeId;
-my $lastNodeId;
-my $currentRoot;
-my $currentBRoot;
-my $currentWord;
-my $currentBWord;
+my $currentNodeId = "";
+my $lastNodeId = "";
+my $currentRoot = "";
+my $currentBRoot = "";
+my $currentWord = "";
+my $currentBWord = "";
 my $currentItype;
 my $currentLetter;
 my @currentForms;
@@ -202,6 +208,10 @@ sub testConvertString {
 sub writelog {
   my $h = shift;
   my $t = shift;
+
+  if ($noLogging) {
+    return;
+  }
 
   chomp $t;
   print $h "$t\n";
@@ -2400,6 +2410,12 @@ sub writeSource {
 ############################################################
 
 my $sql;
+if ($testConversionMode) {
+  $noLogging = 1;
+  print $testConversionMode . "\n";
+  print convertString($testConversionMode,"word") . "\n";
+  exit 1;
+}
 if ($sqlSource) {
   open(SQL,"<$sqlSource");
   while(<SQL>) {
