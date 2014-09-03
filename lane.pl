@@ -2506,6 +2506,9 @@ if ($linksMode) {
 } elsif ($diacriticsMode) {
   stripDiacritics();
   writeSource(1);
+} elsif ($supplementItypeMode) {
+  fix_supplement_itypes();
+  writeSource(1);
 } else {
   print "Nothing to do here\n";
 }
