@@ -794,6 +794,7 @@ sub writeRoot {
   $rootsth->bind_param(6,$quasi);
   $rootsth->bind_param(7,$alternates);
   $rootsth->bind_param(8,$currentRootPage);
+  $rootsth->bind_param(9,$currentFile);
   if ($rootsth->execute()) {
     $rootDbCount++;
     $writeCount++;
@@ -2462,7 +2463,7 @@ if (! $dryRun ) {
   eval {
     $xrefsth = $dbh->prepare("insert into xref (datasource,word,bword,node,page,type) values (1,?,?,?,?,?)");
     $entrysth = $dbh->prepare("insert into entry (datasource,root,broot,word,itype,nodeId,bword,xml,supplement,file,page,nodenum,perseusxml) values (1,?,?,?,?,?,?,?,?,?,?,?,?)");
-    $rootsth = $dbh->prepare("insert into root (datasource,word,bword,letter,bletter,supplement,quasi,alternates,page) values (1,?,?,?,?,?,?,?,?)");
+    $rootsth = $dbh->prepare("insert into root (datasource,word,bword,letter,bletter,supplement,quasi,alternates,page,xml) values (1,?,?,?,?,?,?,?,?,?)");
     $alternatesth = $dbh->prepare("insert into alternate (datasource,word,bword,letter,bletter,supplement,quasi,alternate) values (1,?,?,?,?,?,?,?)");
     # these are for the set-links searches
     $lookupsth = $dbh->prepare("select id,bword,nodeId from entry where word = ? and datasource = 1");
