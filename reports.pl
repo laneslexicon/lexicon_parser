@@ -522,11 +522,125 @@ $id,            $letter,        $word,                       $vol,$page
   }
   $fh->close;
 }
+sub check_long_roots {
+  my $db = shift;
+  my $dbid = shift;
+  openDb($db);
+  my $sth = $dbh->prepare("select id,word,bword,letter,bletter,supplement,page,xml from root where length(bword) > 1 order by page");
+  $sth->execute();
+  my $word;
+  my $bword;
+  my $letter;
+  my $rootrec;
+  my $id;
+  my $page;
+  my $vol;
+  my $xml;
+  format LONG_ROOT_TOP =
+@<<<<<<<<<<<<<<<<  Long Roots Report                                Page @>>>
+$dbid,                                                                  $%
+                   =================
+Id              Letter          Root                        Vol/Page     File
+-----------------------------------------------------------------------------
+.
+  format LONG_ROOT =
+@<<<<<<<<<<<<<<<@<<<<<<<<<<<@<<<<<<<<<<<<<@<<<<<<<<<<<<<<<<<<<V@/@<<<<<<<<<@<<<
+$id,            $letter,        $word, $bword ,                  $vol,$page,$xml
+.
+  my $fh;
+  my $csv;
+  my $tex;
+  open($fh,">:encoding(UTF8)","long_roots_$dbid.txt");
+  open($csv,">:encoding(UTF8)","long_roots_$dbid.csv");
+  open($tex,">:encoding(UTF8)","long_roots_$dbid.tex");
+  $fh->format_name("LONG_ROOT");
+  $fh->format_top_name("LONG_ROOT_TOP");
+  print $tex get_tex_header();
+  print $tex "\\hline\n";
+  print $tex "Id & Letter & Root & Buckwalter & Vol & Page & File \\\\\n";
+  print $tex "\\hline\n";
+  print $tex "\\endhead\n";
+  my $linecount = 0;
+  my $lastvol = 1;
+  while ($rootrec = $sth->fetchrow_arrayref) {
+    if ($linecount > 0) {
+      ## print the end of line
+      print $tex " \\\\\n";
+    }
+    $bword = $rootrec->[2];
+    $word = decode("UTF-8",$rootrec->[1]);
+    $letter = decode("UTF-8",$rootrec->[3]);
+    $page = $rootrec->[6];
+    $vol = getVolForPage($page);
+    $bword = $rootrec->[2];
+    $xml = $rootrec->[7];
+
+    $id = $rootrec->[0];
+    write $fh;
+    print $csv sprintf "%s,%s,%s,%s,%s,%s,%s\n",$id,$letter,$word,$bword,$vol,$page,$xml;
+    $bword =~ s/~/\\~{}/g;
+    $bword =~ s/\^/\\^{}/g;
+    $bword =~ s/\$/\\\$/g;
+    $xml =~ s/_/\\_/g;
+    $xml =~ s/\$/\\\$/g;
+    if ($lastvol != $vol) {
+      print $tex "\\pagebreak\n";
+      $lastvol = $vol;
+    }
+    print $tex sprintf "%s & \\textarabic{%s} & \\textarabic{%s} &  %s & %s & %s &  %s",$id,$letter,$word,$bword,$vol,$page,$xml;
+    $linecount++;
+  }
+  print $tex "\n";
+  print $tex get_tex_footer();
+  $fh->close;
+  $csv->close;
+  $tex->close;
+}
+sub get_tex_header {
+  my $t = <<'EOT';
+\documentclass{book}
+\usepackage{array}
+\usepackage{longtable}
+\usepackage{setspace}
+\usepackage{fontspec}
+\usepackage{polyglossia}
+\usepackage{lastpage}
+\usepackage{fancyhdr}
+\usepackage[hmargin=1cm,vmargin=3cm]{geometry}
+\setmainlanguage{english}
+\setotherlanguages{arabic,greek}
+%\newfontfamilyarabicfont[Script=Arabic,Scale=1.5]{Droid Arabic Naskh}
+\newfontfamily\arabicfont[Script=Arabic,Scale=2.0]{Amiri}
+\newfontfamily\greekfont[Script=Greek,Scale=1.1]{Galatia SIL}
+\newfontfamily\englishfont[Script=Latin,Scale=1.1]{Droid Sans}
+
+\pagestyle{fancy}
+\fancyhf{}
+\lhead{Long Roots}
+\rhead{}
+\lfoot{\today}
+\rfoot{Page \thepage/\pageref{LastPage}}
+\begin{document}
+\setlength{\tabcolsep}{5mm}
+\setlength{\parindent}{0mm}
+%\begin{center}
+\begin{longtable}{ccccccc}
+EOT
+  return $t;
+}
+sub get_tex_footer {
+  my $t = <<'EOT';
+\end{longtable}
+\end{document}
+EOT
+  return $t;
+}
 my $db = "lexicon.sqlite";
 #check_double_questions("../xml",$db);
 my $dbid;
 $dbid  = "b58b102ec5a2f1d7";
 $dbid = "2f0d0cfdfd04a98d";
-  summaryStats("/tmp","lexicon",$dbid);
-convErrors("/tmp","lexicon",$dbid);
-wrong_letter($db,$dbid);
+#  summaryStats("/tmp","lexicon",$dbid);
+#convErrors("/tmp","lexicon",$dbid);
+#wrong_letter($db,$dbid);
+check_long_roots($db,"ee2a70a7efb7bb5c");
