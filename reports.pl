@@ -2,14 +2,30 @@
 use strict;
 use warnings;
 use File::Find;
+use File::Basename;
+use File::Temp qw/tempdir/;
+use File::Spec::Functions qw(catfile);
 use English;
 use FileHandle;
 use DBI;
+use Cwd;
 use Encode;
 use XML::LibXML;
+use Getopt::Long;
 my $dbh;
+my $logDir;
+my $dbname;
+my $dbid;
+my $xmlDir;
 binmode STDERR, ":encoding(UTF-8)";
 binmode STDOUT, ":encoding(UTF-8)";
+GetOptions (
+  "log-dir=s" => \$logDir,
+  "dbid=s" => \$dbid,
+  "db=s" => \$dbname,
+  "dir=s" => \$xmlDir)
+  or die("Error in command line arguments");
+
 sub convertString {
   my $t = shift;
   my $s = $t;
@@ -98,6 +114,49 @@ sub getVolForPage {
   }
   return -1;
 }
+sub getLogDirectory {
+  my $base = shift;
+  my $dbid = shift;
+
+  # check the base exists or can be created
+  if (! $base ) {
+      $base = dirname(tempdir());
+  }
+  my $n = catfile($base,$dbid);
+  if (-d $n ) {
+    return $n;
+  }
+  if ( -d $base ) {
+  }
+  else {
+    if (! mkdir $base) {
+      $base = dirname(tempdir());
+    }
+  }
+  # try to create the subdirectory
+  my $logdir = catfile($base,$dbid);
+  if ( mkdir $logdir) {
+    return $logdir;
+  }
+  # couldn't create, so try create as subdirectory of current
+  $logdir = catfile(getcwd(),$dbid);
+  if (-d $logdir ) {
+    return $logdir;
+  }
+  elsif ( mkdir $logdir) {
+    return $logdir;
+  }
+  # couldn't do that either, so use the temporary directory
+  # or the current working directory ignore the $dbid
+  $logdir = catfile(dirname(tempdir()),$dbid);
+  if (-d $logdir ) {
+    return $logdir;
+  }
+  elsif ( mkdir $logdir) {
+    return $logdir;
+  }
+  return getcwd();
+}
 ##################################################################################
 # return list of log files in the given directory
 ###################################################################################
@@ -124,8 +183,7 @@ sub readDirectory {
 #
 ###################################################
 sub convErrors {
-  my $filedir = shift;
-  my $fileprefix = shift;
+  my $logdir = shift;
   my $dbId = shift;
   my ($xml,$lineno,$root,$word,$vol,$text,$node,$errChar,$position,$page);
   my ($fh,$outf,$out4f,$out5f,$out6f);
@@ -180,9 +238,9 @@ $xml,$lineno,$root,$word,$node,$vol,$text
   my @xmlfiles = qw(_A0 b0 t0 v0 j0 _H0 x0 d0 _0 r0 z0 s0 $0 _S0 _D0 _T0 _Z0 _E0 g0 f0 q0 k0 l0 m0 n0 h0 w0 _Y0 q1 k1 l1 m1 n1 h1 w1 _Y1);
 
 
-  open $out4f, ">:encoding(UTF8)", "error_type4_$dbId.txt";
-  open $out5f, ">:encoding(UTF8)", "error_type5_$dbId.txt";
-  open $out6f, ">:encoding(UTF8)", "error_type6_$dbId.txt";
+  open $out4f, ">:encoding(UTF8)", catfile($logDir,"error_type4.txt");
+  open $out5f, ">:encoding(UTF8)", catfile($logDir,"error_type5.txt");
+  open $out6f, ">:encoding(UTF8)", catfile($logDir,"error_type6.txt");
   $out4f->format_name("TYPE4");
   $out4f->format_top_name("TYPE4_TOP");
   $out5f->format_name("TYPE5");
@@ -191,12 +249,12 @@ $xml,$lineno,$root,$word,$node,$vol,$text
   $out6f->format_top_name("TYPE6_TOP");
 
 
-  if ($filedir =~ /\/$/) {
-    chop $filedir;
+  if ($logdir =~ /\/$/) {
+    chop $logdir;
   }
 
   foreach my $logfile (@xmlfiles) {
-    my $file = sprintf "%s/%s-%s-%s-conv.log",$filedir,$fileprefix,$logfile,$dbId;
+    my $file = catfile($logdir,sprintf "%s-conv.log",$logfile);
     if (! -e $file ) {
       print STDERR "Could not find file $file\n";
       next;
@@ -231,7 +289,7 @@ $xml,$lineno,$root,$word,$node,$vol,$text
         write $out4f;
       }
         if ($errType == 6) {
-        write $out6f;
+          write $out6f;
       }
         # if (($out4f->format_lines_left == 0) && ($count > 0)) {
         #   my $x = $out4f;
@@ -239,8 +297,12 @@ $xml,$lineno,$root,$word,$node,$vol,$text
         # }
         $count++;
       }
-      if ($1 == 5) {
+      if ($errType == 5) {
         @words = split ",",$_;
+        if (scalar(@words) < 15) {
+#          print STDERR $_;
+        }
+        else {
         $errChar = $words[4];
         $node = $words[5];
         $root = $words[6];
@@ -261,6 +323,7 @@ $xml,$lineno,$root,$word,$node,$vol,$text
         }
         write $out5f;
       }
+      }
     }
     close $fh;
   }
@@ -273,18 +336,17 @@ $xml,$lineno,$root,$word,$node,$vol,$text
 #   6:  A_ converted to I
 #######################################################################
 sub summaryStats {
-  my $filedir = shift;
-  my $fileprefix = shift;
+  my $logdir = shift;
   my $dbId = shift;
   my @xmlfiles = qw(_A0 b0 t0 v0 j0 _H0 x0 d0 _0 r0 z0 s0 $0 _S0 _D0 _T0 _Z0 _E0 g0 f0 q0 k0 l0 m0 n0 h0 w0 _Y0 q1 k1 l1 m1 n1 h1 w1 _Y1);
 
-  my $pattern = sprintf "%s-[^\-]+%s-conv.log\$",$fileprefix,$dbId;
+  my $pattern = "conv.log\$";#,$fileprefix,$dbId;
 
   my ($filename,$type2,$type3,$type4,$type5,$type6,$typeother);
   my ($fh,$outf);
   my ($day,$month,$year) = (localtime)[3,4,5];
   my $rundate = sprintf "%04d-%02d-%02d",$year+1900,$month+1,$day;
-  my @convfile =  readDirectory($filedir,$pattern);
+
   format SUMMARY_TOP =
    @<<<<<<<<<                           Error Summary (@<<<<<<<<<<<<<<<)             Page @<<
 $rundate,$dbId,$%
@@ -296,22 +358,22 @@ $rundate,$dbId,$%
    @<<<<<<<<<<@<<<<<<<<<<<<<<<@<<<<<<<<<<<<<<<@<<<<<<<<<<<@<<<<<<<<<<<<<<<@<<<<<<<<<<@<<<<<
 $filename,$type2,$type3,$type4,$type5,$type6,$typeother
 .
-  open $outf, ">:encoding(UTF8)", "error_summary_$dbId.txt";
+  open $outf, ">:encoding(UTF8)", catfile($logDir,"error_summary.txt");
   $outf->format_name("SUMMARY");
   $outf->format_top_name("SUMMARY_TOP");
-  if ($filedir =~ /\/$/) {
-    chop $filedir;
+  if ($logdir =~ /\/$/) {
+    chop $logdir;
   }
 
   foreach my $logfile (@xmlfiles) {
-    my $file = sprintf "%s/%s-%s-%s-conv.log",$filedir,$fileprefix,$logfile,$dbId;
+    my $file = catfile($logdir,sprintf  "%s-conv.log",$logfile);
     if (! -e $file ) {
       print STDERR "Could not find file $file\n";
       next;
     }
    $type2 = $type3 = $type4 = $type5 = $type6 = $typeother = 0;
-   if ($file =~ /-([^-]+)-([^-]+)-conv.log/) {
-     $filename = sprintf "%s.xml",$1;
+   if ($file =~ /([^-]+)-conv.log/) {
+     $filename = $logfile;#sprintf "%s.xml",$1;
      open $fh, "<",$file || die $@;
      # skip the header
      <$fh>;
@@ -460,7 +522,8 @@ sub check_double_questions {
   my @xml = readDirectory($xmldir,"xml\$");
 
   my $dqh;
-  open $dqh,">:encoding(UTF8)","double_questions.txt" or die $@;
+  my $filename = catfile($logDir,"double_questions.txt");
+  open ($dqh,">:encoding(UTF8)",$filename) or die $@;
   if ($dbname) {
     openDb($dbname);
     if ($dbh) {
@@ -502,7 +565,7 @@ Id              Letter          Root                        Vol/Page
 $id,            $letter,        $word,                       $vol,$page
 .
   my $fh;
-  open($fh,">:encoding(UTF8)","wrong_letter_$dbid.txt");
+  open($fh,">:encoding(UTF8)",catfile($logDir,"wrong_letter.txt"));
   $fh->format_name("LETTER");
   $fh->format_top_name("LETTER_TOP");
   while ($rootrec = $sth->fetchrow_arrayref) {
@@ -550,9 +613,10 @@ $id,            $letter,        $word, $bword ,                  $vol,$page,$xml
   my $fh;
   my $csv;
   my $tex;
-  open($fh,">:encoding(UTF8)","long_roots_$dbid.txt");
-  open($csv,">:encoding(UTF8)","long_roots_$dbid.csv");
-  open($tex,">:encoding(UTF8)","long_roots_$dbid.tex");
+
+  open($fh,">:encoding(UTF8)",catfile($logDir,"long_roots.txt"));
+  open($csv,">:encoding(UTF8)",catfile($logDir,"long_roots.csv"));
+  open($tex,">:encoding(UTF8)",catfile($logDir,"long_roots.tex"));
   $fh->format_name("LONG_ROOT");
   $fh->format_top_name("LONG_ROOT_TOP");
   print $tex get_tex_header();
@@ -628,6 +692,9 @@ sub get_tex_header {
 EOT
   return $t;
 }
+#
+#
+#
 sub get_tex_footer {
   my $t = <<'EOT';
 \end{longtable}
@@ -635,12 +702,15 @@ sub get_tex_footer {
 EOT
   return $t;
 }
-my $db = "lexicon.sqlite";
-#check_double_questions("../xml",$db);
-my $dbid;
-$dbid  = "b58b102ec5a2f1d7";
-$dbid = "2f0d0cfdfd04a98d";
-#  summaryStats("/tmp","lexicon",$dbid);
-#convErrors("/tmp","lexicon",$dbid);
-#wrong_letter($db,$dbid);
-check_long_roots($db,"ee2a70a7efb7bb5c");
+$logDir = getLogDirectory($logDir,$dbid);
+if (! $dbid ) {
+  print STDERR "No run ID specified, exiting\n";
+  exit 1;
+}
+if ($xmlDir) {
+  check_double_questions($xmlDir,$dbname);
+}
+summaryStats($logDir,$dbid);
+convErrors($logDir,$dbid);
+wrong_letter($dbname,$dbid);
+check_long_roots($dbname,$dbid);

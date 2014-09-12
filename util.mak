@@ -4,6 +4,7 @@
 .PHONY: testentry
 .PHONY: test
 .PHONY: onefile
+.PHONY: build
 XMLFILES := $(wildcard ./tmp/*.xml)
 #
 # these are for testing various XLST
@@ -53,6 +54,12 @@ onefile:
 lexicon:
 	./version.sh
 	perl lane.pl --db lexicon.sqlite --initdb --overwrite --dir .../xml --no-context --verbose --logbase lexicon --sql ./lexicon_schema.sql
+build:
+	./version.sh
+	perl lane.pl --db lexicon.sqlite --initdb --overwrite -dir ../xml --no-context --verbose --log-dir ../logs --sql ./lexicon_schema.sql --do-all --show-progress 
+	perl reports.pl --db lexicon.sqlite --log-dir ../logs --dbid `cat LASTRUNID` --dir ../xml 
+test1:
+	perl reports.pl --db lexicon.sqlite --log-dir /tmp --dbid `cat LASTRUNID` --dir ../xml 
 #
 #
 #      run this to get a complete database
@@ -60,7 +67,7 @@ lexicon:
 #
 full:
 	./version.sh
-	perl lane.pl --db lexicon.sqlite --initdb --overwrite --dir ../xml --no-context --verbose --logbase lexicon --sql ./lexicon_schema.sql
+	perl lane.pl --db lexicon.sqlite --initdb --overwrite --dir ../xml --no-context --verbose --logbase lexicon --log-dir ../logs --sql ./lexicon_schema.sql
 	cp lexicon.sqlite /tmp
 	perl lane.pl --db lexicon.sqlite --xrefs
 	perl lane.pl --db lexicon.sqlite --diacritics

@@ -6,9 +6,12 @@ use XML::LibXML;
 use Encode;
 use utf8;
 use DBI;
-use File::Spec;
+#use File::Spec;
 use File::Basename;
 use File::Find;
+use File::Temp qw/tempdir/;
+use File::Spec::Functions qw(catfile);
+#use Cwd;
 use Data::Dumper;
 use Getopt::Long;
 use Time::HiRes qw( time );
@@ -31,6 +34,7 @@ my $initdb  = 0;
 my $xmlFile = "";
 my $parseDir = "";
 my $commitCount = 5000;
+my $sql;
 my $sqlSource = "";
 my $skipConvert = 0;
 my $debug = 0;
@@ -41,7 +45,7 @@ my $textMargin = 30;
 my $suppressFixups = 0;
 my $suppressContext = 0;
 my $doTest = "";
-my $logDir = "/tmp";
+my $logDir;
 my $linksMode = 0;
 my $convertMode = 0;
 my $tagsMode = 0;
@@ -49,26 +53,26 @@ my $arrowMode = 0;
 my $xrefMode = 0;
 my $supplementItypeMode = 0;
 my $diacriticsMode = 0;
-my $logbase = "";               # forms part of the log file name
 my $linkletter = ""; # just set links for words whose root begins with this letter
 my $rootLineNumber;
 my $entryLineNumber;
 my $withPerseus = 0;
 my $testConversionMode = 0;
 my $noLogging = 0;
+my $doAll = 1;
+my $showProgress = 0;
 my %tags;
 #
-#   --dbname latest.sqlite --scan-arrows
-#          prints <orth type="arrow" lang="ar">...</orth> values
 #
 GetOptions (
-            "logbase=s" => \$logbase,
+            "do-all" => \$doAll,
             "no-logs" => \$noLogging,
             "scan-arrows" => \$arrowMode,
             "scan-tags" => \$tagsMode,
             "set-links" => \$linksMode,
             "letter=s" => \$linkletter,
-            "logdir=s" => \$logDir,
+            "log-dir=s" => \$logDir,
+            "show-progress" => \$showProgress,
             "test=s" => \$doTest,
             "no-context"  => \$suppressContext,
             "suppress-fixups" => \$suppressFixups,
@@ -116,7 +120,7 @@ my $linkCount = 0;
 my $arrowsCount = 0;
 my $unresolvedArrows = 0;
 #
-my $dbId = generateId();
+my $dbId;
 my $dbh = 0;
 my $writeCount = 0;
 my $totalWriteCount = 0;
@@ -1219,25 +1223,67 @@ sub processRoot {
     }
   }
 }
+############################################################
+#  create subdirectory of the given base directory
+#
+#  if no base is given, use the system temporary directory
+# if unable to create subdirectory of the given base
+# create subdirec
+#
+###########################################################
+sub getLogDirectory {
+  my $base = shift;
+  my $id = shift;
+
+  # check the base exists or can be created
+  if (! $base ) {
+      $base = dirname(tempdir());
+  }
+  if ( -d $base ) {
+  }
+  else {
+    if (! mkdir $base) {
+      $base = dirname(tempdir());
+    }
+  }
+  # try to create the subdirectory
+  my $logdir = catfile($base,$id);
+  if ( mkdir $logdir) {
+    return $logdir;
+  }
+  # couldn't create, so try create as subdirectory of current
+  $logdir = catfile(getcwd(),$id);
+  if (-d $logdir ) {
+    return $logdir;
+  }
+  elsif ( mkdir $logdir) {
+    return $logdir;
+  }
+  # couldn't do that either, so use the temporary directory
+  # or the current working directory ignore the $dbid
+  $logdir = catfile(dirname(tempdir()),$id);
+  if (-d $logdir ) {
+    return $logdir;
+  }
+  elsif ( mkdir $logdir) {
+    return $logdir;
+  }
+  return getcwd();
+}
 
 sub getLogBase {
   my $filename = shift;
   my ($base,$p,$suffix) = fileparse($filename,'\..*');
 
+  # this is a global variable
   $currentFile = $base;
-  # if (! $base ) {
-  #   $base = strftime "%F-%T", localtime $^T;
-  #   $base =~ s/:/-/g;
+
+  # if (! $logbase ) {
+  #   my $dt = POSIX::strftime "%y%m%d", localtime;
+  #   $base = $dt . "-" . $base;
+  # } else {
+  #   $base = $logbase . "-" . $base;
   # }
-  if ( ! -d $logDir ) {
-    $logDir = ".";
-  }
-  if (! $logbase ) {
-    my $dt = POSIX::strftime "%y%m%d", localtime;
-    $base = $dt . "-" . $base;
-  } else {
-    $base = $logbase . "-" . $base;
-  }
   return $base;
 }
 ################################################################
@@ -1250,7 +1296,7 @@ sub openLogs {
 
 
   my $base = getLogBase($filename);
-  $base = sprintf "%s-%s", $base,$dbId;
+#  $base = sprintf "%s-%s", $base,$dbId;
   my $errlog = File::Spec->catfile($logDir,$base . "-err.log");
   my $parselog = File::Spec->catfile($logDir,$base . "-parse.log");
   my $convlog = File::Spec->catfile($logDir,$base . "-conv.log");
@@ -1276,7 +1322,8 @@ sub openLogs {
 sub parseFile {
   my $fileName = shift;
   my $start = time();
-  #  print STDERR "Parsing file: $fileName\n";
+
+  print STDERR "Parsing file: $fileName\n" unless ! $showProgress;
   my $parser = XML::LibXML->new;
   $parser->set_options("line_numbers" => "parser");
 
@@ -1326,12 +1373,12 @@ sub parseFile {
   #print $doc->toString;
 
   # Avoid memory leaks - cleanup circular references for garbage collection
-  my $str =  $doc->toString;
+#  my $str =  $doc->toString;
 
-  open(OUT,">:encoding(UTF8)","/tmp/test.xml");
-  binmode OUT, ":utf8";
-  print OUT $str;
-  close OUT;
+#  open(OUT,">:encoding(UTF8)","/tmp/test.xml");
+#  binmode OUT, ":utf8";
+#  print OUT $str;
+#  close OUT;
 
   #  $doc->dispose;
   if ( ! $dryRun ) {
@@ -1371,10 +1418,13 @@ sub parseDirectory {
   my $d = shift;
 
   if (! -d $d ) {
-    print STDERR "No such directory:[$d]\n";
-    return;
+    print STDERR "No such directory:$d\, process terminatingn";
+    exit 1;
 
   }
+  print STDERR "Parsing directory $d\n" unless ! $showProgress;
+  print STDERR "Creating log files in $logDir\n" unless ! $showProgress;
+
   my @totals;
 
   eval {
@@ -1420,19 +1470,12 @@ sub parseDirectory {
   }
   my %audit;
   foreach my $h (@totals) {
-
-    # print STDOUT sprintf "%30s %10d %10d %10d\n",
-    #   $h->{File},
-    #   $h->{"Root count"},
-    #   $h->{"Entry count"},
-    #   $h->{"Xref count"};
-
     my ($k,$b,$c) = fileparse($h->{File},qw(.xml));
     $audit{$k} = $h;
   }
   my $str = Data::Dumper->Dump([\%audit],[qw(audit)]);
 
-  open AUD , ">","audit_$dbId.txt";
+  open AUD , ">","$logDir/audit.txt";
   print AUD $str;
   close AUD;
 }
@@ -1441,77 +1484,8 @@ sub generateId {
   my  $str = sprintf("%0.8x",rand()*0xffffffff);
   $str .= sprintf("%0.8x",rand()*0xffffffff);
 
+  print STDERR "Run ID: $str\n" unless ! $showProgress;
   return $str;
-}
-################################################################
-#
-#
-################################################################
-sub getSQL {
-  return <<EOF;
-PRAGMA foreign_keys=OFF;
-BEGIN TRANSACTION;
-CREATE TABLE root (
-id integer primary key,
-word text,
-bword text,
-letter text,
-bletter text,
-xml text,
-supplement integer,
-quasi integer,
-alternates integer,
-page integer
-);
-create index 'letter_index' on root (letter asc);
-
-create TABLE alternate (
-id integer primary key,
-word text,
-bword text,
-letter text,
-bletter text,
-xml text,
-supplement integer,
-quasi integer,
-alternate integer
-);
-create TABLE itype (
-id integer primary key,
-itype integer,
-root text,
-broot text,
-nodeId text,
-word text,
-xml text
-);
-create TABLE entry (
-id integer primary key,
-root text,
-broot text,
-word text,
-bword text,
-itype text,
-nodeId text,
-xml text,
-supplement integer,
-file text,
-page integer,
-nodenum real
-);
-create index 'word_index' on entry (word asc);
-create index 'broot_index' on entry (broot asc);
-create index 'root_index' on entry (root asc);
-CREATE TABLE xref (
-id INTEGER primary key,
-word TEXT,
-bword text,
-node TEXT,
-type INTEGER,
-page integer
-);
-COMMIT;
-EOF
 }
 ################################################################
 #
@@ -1704,7 +1678,7 @@ sub scanTags {
 }
 ################################################################
 #
-#
+# print details of <orth type="arrow">
 #
 ################################################################
 sub checkArrow {
@@ -1749,7 +1723,8 @@ sub checkArrow {
 }
 #############################################################
 #
-#
+#  this just prints detail of nodes with <orth type="arrow">
+#  was a testing function and is no longer needed
 #
 ############################################################
 sub scanArrow {
@@ -1909,7 +1884,7 @@ sub setLinks {
 
   #  my $parser = new XML::DOM::Parser;
 
-
+  print STDERR "Updating links\n" unless ! $showProgress;
   my @letters;
   my @roots;
   if ($letter) {
@@ -2014,13 +1989,15 @@ sub setLinks {
     #    $dbh->begin_work();
     $writeCount = 0;
   }
-  print STDERR "Arrows count $arrowsCount, unresolved : $unresolvedArrows\n";
+  print STDERR "Links count $arrowsCount, unresolved : $unresolvedArrows\n";
 }
 #
 # update the entry for each xref record, store the associated root & entry word (ie the entry
 # in which the word occurred. We need this so we can load the entry when we present the search result
 #
 sub updateXrefs {
+
+  print STDERR "Updating cross-references\n" unless ! $showProgress;
   my $sth =  $dbh->prepare("select id,node from xref where datasource = 1");
   my $uh = $dbh->prepare("update xref set root = ?,broot = ?,entry = ?,bentry = ?,nodenum = ? where id = ?");
   my $lh = $dbh->prepare("select root,broot,word,bword,nodenum from entry where nodeId = ? and datasource = 1");
@@ -2055,11 +2032,33 @@ sub updateXrefs {
   }
   $dbh->commit();
 }
+sub get_insert_point {
+  my $rec = shift;
+  my $x = $rec->{itype};
+  $x += 0;
+
+  my $entry = $dbh->prepare("select id,root,word,itype,nodeid,nodenum,file from entry where root = ?  and supplement = 0 order by nodenum asc");
+
+  $entry->bind_param(1,decode("UTF-8",$rec->{root}));
+  $entry->execute();
+  while(my $entryrec = $entry->fetchrow_hashref) {
+    my $itype = $entryrec->{itype};
+    if ($itype !~ /^\d+$/) {
+      return $entryrec;
+    }
+    $itype += 0;
+    if ($itype > $x) {
+      return $entryrec;
+    }
+  }
+}
+
 ####################################################################
 # without running this supplement entries with itypes appear at the
 # end of the entries. This code merges them with the other itypes
 ####################################################################
 sub fix_supplement_itype {
+  print STDERR "Fixing supplement details\n" unless ! $showProgress;
   my $sth = $dbh->prepare("select id,broot,root,word,itype,nodeId,nodenum,file from entry where supplement = 1 and itype != \"\" order by id asc");
   my $dup = $dbh->prepare("select id,root,word,itype,nodeid,nodenum,file from entry where root = ?  and supplement = 0 order by nodenum asc");
 
@@ -2119,6 +2118,7 @@ sub fix_supplement_itype {
 }
 
 sub stripDiacritics {
+  print STDERR "Creating bare word entries without diacritics\n" unless ! $showProgress;
   my $count = 0;
   my $sth =  $dbh->prepare("select id,word from xref where datasource = 1");
   my $uh = $dbh->prepare("update xref set bareword = ? where id = ?");
@@ -2148,7 +2148,7 @@ sub stripDiacritics {
         $writeCount = 0;
       }
    }
-  print sprintf "Xref rows to updated : %d\n",$count;
+  #print sprintf "Xref rows to be updated : %d\n",$count;
   $count = 0;
   #
   # same again for entry
@@ -2177,7 +2177,7 @@ sub stripDiacritics {
         $writeCount = 0;
       }
    }
-  print sprintf "entry rows updated : %d\n",$count;
+#  print sprintf "Entry rows updated : %d\n",$count;
   $count = 0;
   #
   # same again for itype
@@ -2247,54 +2247,6 @@ sub getVolForPage {
     return 8;
   }
   return -1;
-}
-sub testlink {
-
-  my $xml = <<'END';
-<entryFree id="n4889" key="juw^o$uw$N" type="main">
-   <form>
-                     <orth orig="" extent="full" lang="ar">juw^o$uw$N</orth>
-                     <orth extent="full" lang="ar">*</orth>
-                  </form> The <hi rend="ital" TEIform="hi">breast,</hi> or <hi rend="ital" TEIform="hi">chest;</hi> (S, A, K;) as also ↓
-      <orth type="arrow" lang="ar">jaA^o$N</orth> and ↓
-      <orth type="arrow" lang="ar">juw^o$N</orth>: (A:) or <hi rend="ital" TEIform="hi">its</hi>
-                  <foreign lang="ar" TEIform="foreign">Hayozuwm</foreign>, q. v. (Ibn-'Abbád, K.) ―         -b2-  The <hi rend="ital" TEIform="hi">forepart</hi> (<foreign lang="ar" TEIform="foreign">Sador</foreign>) of the night; accord. to which explanation it is tropical: or <hi rend="ital" TEIform="hi">what is between the beginning and the third</hi> thereof: or <hi rend="ital" TEIform="hi">a while</hi> thereof: (TA:) or <hi rend="ital" TEIform="hi">a portion</hi> thereof; (Lh, K;) and of people. (K.)       -A2-  Also A <hi rend="ital" TEIform="hi">thick,</hi> or <hi rend="ital" TEIform="hi">gross,</hi> or <hi rend="ital" TEIform="hi">coarse,</hi> man. (Ibn- 'Abbád, K.)   </entryFree>
-END
-
-  openDb("latest.sqlite");
-  #
-  # this doesn't catch the errors, so if file exists and tables are not right it will crash
-  #
-  eval {
-    $xrefsth = $dbh->prepare("insert into xref (datasource,word,bword,node) values (1,?,?,?)");
-    $entrysth = $dbh->prepare("insert into entry (datasource,root,broot,word,itype,nodeId,bword,xml,supplement,file,nodenum,perseusxml) values (1,?,?,?,?,?,?,?,?,?,?,?)");
-    $rootsth = $dbh->prepare("insert into root (datasource,word,bword,letter,bletter,supplement) values (1,?,?,?,?,?)");
-    $lookupsth = $dbh->prepare("select id,bword,nodeId from entry where word = ? and datasource = 1");
-  };
-  if ($@) {
-    print STDERR "SQL prepare error:$@\n";
-    print STDERR "DB updates disabled\n";
-    $dryRun = 1;
-  }
-
-  my $parser = XML::LibXML->new;
-    $parser->set_options("line_numbers" => "parser");
-
-  #  my $parser = new XML::DOM::Parser;
-  my $doc = $parser->parse_string($xml);
-
-  my $nodes = $doc->getElementsByTagName ("entryFree");
-  my $n = $nodes->size();
-  print STDERR "Nodes : $n\n";
-  for (my $i = 0; $i < $n; $i++) {
-    my $node = $nodes->item($i);
-    $updateNode = 0;
-    traverseNode($node);
-    if ($updateNode) {
-      print $node->toString;
-    }
-  }
-
 }
 #############################################################
 #
@@ -2403,60 +2355,7 @@ sub writeSource {
   }
   return 0;
 }
-
-#############################################################
-#
-# MAIN
-#
-############################################################
-
-my $sql;
-if ($testConversionMode) {
-  $noLogging = 1;
-  print $testConversionMode . "\n";
-  print convertString($testConversionMode,"word") . "\n";
-  exit 1;
-}
-if ($sqlSource) {
-  open(SQL,"<$sqlSource");
-  while(<SQL>) {
-    chomp;
-    $sql = $sql . $_;
-  }
-  close SQL;
-  # get SQL source from file
-} else {
-  $sql = getSQL();
-}
-if (! $logbase ) {
-  $logbase = $dbname;
-  $logbase =~ s/\.\w+$//;
-}
-if ($initdb) {
-  if ( -e $dbname ) {
-    if (! $overwrite ) {
-      print STDERR "DB $dbname exists, remove or run with --overwrite\n";
-      exit 1;
-    } else {
-      unlink $dbname;
-    }
-  }
-  if ( ! $sql ) {
-    print STDERR "No SQL source for inititialisation\n";
-    exit 1;
-  }
-  initialiseDb($dbname,$sql);
-
-}
-if (! $dryRun ) {
-  if ( ! $dbname ) {
-    print STDERR "No database name supplied\n";
-    exit 1;
-  }
-  if ( ! -e $dbname ) {
-    initialiseDb($dbname,$sql);
-  }
-  openDb($dbname);
+sub prepareSql {
   #
   # this doesn't catch the errors, so if file exists and tables are not right it will crash
   #
@@ -2477,62 +2376,130 @@ if (! $dryRun ) {
     $dryRun = 1;
   }
 }
+########################################################
+# do the post processing
+#########################################################
+sub postParse() {
+    $xrefMode = 1;
+    updateXrefs();
+    $diacriticsMode = 1;
+    stripDiacritics();
+    fix_supplement_itype();
+    $linksMode = 1;
+    my $linklog = File::Spec->catfile($logDir,"link.log");
+    open($llog,">:encoding(UTF8)",$linklog);
+    setLinks($linkletter) ;
+}
+#############################################################
+#
+# MAIN
+#
+############################################################
+if ($testConversionMode) {
+  $noLogging = 1;
+  print $testConversionMode . "\n";
+  print convertString($testConversionMode,"word") . "\n";
+  exit 1;
+}
+
+$dbId = generateId();
+if (! $dbname ) {
+  $dbname = sprintf "%s.sqlite",$dbId;
+}
+if ($sqlSource) {
+  open(SQL,"<$sqlSource");
+  while(<SQL>) {
+    chomp;
+    $sql = $sql . $_;
+  }
+  close SQL;
+  # get SQL source from file
+}
+else {
+  if ($initdb) {
+    print STDERR "initialise db requested but no SQL source specified\n";
+    exit 1;
+  }
+}
+#
+# set the directory for logs
+#
+$logDir = getLogDirectory($logDir,$dbId);
+#
+#
+#
+if ($initdb) {
+  if ( -e $dbname ) {
+    if (! $overwrite ) {
+      print STDERR "DB $dbname exists, remove or run with --overwrite\n";
+      exit 1;
+    } else {
+      unlink $dbname;
+    }
+  }
+  if ( ! $sql ) {
+    print STDERR "No SQL source for inititialisation\n";
+    exit 1;
+  }
+  initialiseDb($dbname,$sql);
+}
+
+if (! $dryRun ) {
+  if ( ! $dbname ) {
+    print STDERR "No database name supplied\n";
+    exit 1;
+  }
+  if ( ! -e $dbname ) {
+    initialiseDb($dbname,$sql);
+  }
+  openDb($dbname);
+  prepareSql();
+}
 if ($doTest) {
   runTest($doTest);
   exit 1;
 }
-#
+########################################################
 # Do a single file
-#
+#########################################################
 if ($xmlFile) {
   if ( ! -e $xmlFile) {
     print STDERR "No such file: $xmlFile";
     exit 1;
   }
+  print STDERR "Parse single file $xmlFile\n" unless ! $showProgress;
+  print STDERR "Creating log files in $logDir\n" unless ! $showProgress;
   parseFile($xmlFile);
   fixupPages();
+  if ($doAll) {
+    postParse();
+  }
   writeSource(1);
   exit 0;
 }
-#
-#  Do all files
-#
+########################################################
+#  Do all files in the directory
+########################################################
 if ($parseDir ) {
   if ( ! -d $parseDir ) {
     print STDERR "No such directory: $parseDir\n";
     exit 1;
   }
   parseDirectory($parseDir);
+  if ($doAll) {
+    postParse();
+  }
   writeSource(1);
+  print STDERR "Run ID: $dbId\n" unless ! $showProgress;
+  open OUT,">LASTRUNID";
+  print OUT $dbId;
+  close OUT;
   exit 0;
 }
-if ($linksMode) {
-  my $linklog = File::Spec->catfile($logDir,sprintf "%s_link.log",$logbase);
-  open($llog,">:encoding(UTF8)",$linklog);
-  setLinks($linkletter) ;
-  writeSource(1);
-} elsif ($tagsMode) {
+elsif ($tagsMode) {
   scanTags();
-  writeSource(1);
 } elsif ($arrowMode) {
   scanArrow();
-  writeSource(1);
-} elsif ($xrefMode) {
-  writeSource(1);
-  updateXrefs();
-} elsif ($diacriticsMode) {
-  stripDiacritics();
-  writeSource(1);
-} elsif ($supplementItypeMode) {
-  fix_supplement_itypes();
-  writeSource(1);
 } else {
   print "Nothing to do here\n";
 }
-#convertString("ja Oxdr sthwmn");
-
-#open $blog,">x.log";
-
-#parseFile("./xml/j0.xml");
-
-#parseDirectory("./xml");
