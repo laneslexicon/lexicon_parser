@@ -155,7 +155,7 @@ my $firstPage;
 my @links;
 my $supplement;
 my $currentFile;
-
+my $jumpId = 0;
 sub testConvertString {
   my $t = shift;
   my $s = $t;
@@ -318,7 +318,7 @@ sub convertString {
       writelog($blog,sprintf "6,%s,%s,%s,%s,%s,V%d/%d,%s", $proctype,$currentRoot,$currentWord,$currentNodeId,$t,getVolForPage($currentPage),$currentPage,$lineno);
     $t =~ s/A_/I/g;
     }
-    # get rid of the &,
+    # get rid of the &c,
     # this might need fixing properly
     # may when proctype = "word" or "root" we can strip it out
     #
@@ -679,15 +679,16 @@ sub writeEntry {
     return 1;
   }
 
-  my $nodenum = $node;
-  $nodenum =~ s/^n//;
+  my $nodenum;
+  $nodenum = $node;
+  if ($nodenum =~ s/^n//) {
     if ($nodenum =~ /(\d+)-(\d+)/) {
       $nodenum = $1 + ($2 / 10);
     }
     else {
       $nodenum = $nodenum + 0.0;
     }
-
+  }
   $entrysth->bind_param(1,$root);
   $entrysth->bind_param(2,$broot);
   $entrysth->bind_param(3,$word);
@@ -1009,30 +1010,39 @@ sub processRoot {
   my $key;
   my $skipRoot;
   my $quasiRoot = 0;
+  my $firstNodeId;
   my @alternates;
   $currentText = $node->toString;
 
   $rootLineNumber = $node->line_number();
 
-  if ($currentRoot =~ /^Quasi/i) {
+  if ($currentRoot =~ /^\s*Quasi/i) {
     $quasiRoot = 1;
-    $currentRoot =~ s/^Quasi\s*//;
+    $currentRoot =~ s/^\s*Quasi\s*//;
 
   }
-  # d0.xml line 12032 has; (dmw or dmY) , V3 82/916
-  if ($currentRoot =~ /^\(.+\)$/) {
-    $currentRoot =~ s/^\(//;
-    $currentRoot =~ s/\)$//;
+  $currentRoot =~ s/&c\.*//;
+  $currentRoot =~ s/&amp;/and/g;
 
-  }
+  # if ($currentRoot =~ /^\(.+\)$/) {
+  #   $currentRoot =~ s/^\(//;
+  #   $currentRoot =~ s/\)$//;
+
+  # }
+  $currentRoot =~ s/[():,\.]//g;
+
   # some of the Quasi entries have : Quasi xxxx:
-  $currentRoot =~ s/:/ /g;
-  # this is for t0.xml
-  #   <div2 n="Quasi tqY: or, accord. to some, tqw" type="root" org="uniform"
+  # TODO there is also: txm and quasi txm ???? (t0.xml)
+  # there are (xxx or xxx) , xxxx and xxxx
+  # d0.xml line 12032 has; (dmw or dmY) , V3 82/916
   #
-  if ($currentRoot =~ /accord\. to some/) {
-    $currentRoot =~ "tqY and tqw";
-  }
+  # t0.xml, 3387,Quasi tqY: or, accord. to some, tqw
+  # q0.xml,12374,qnf*, or, accord. to some, qf*
+  #
+  $currentRoot =~ s/accord\s+to\s+some//;
+  $currentRoot =~ s/see\s+art/see/;
+#    $currentRoot =~ "tqY and tqw";
+#  }
   #
   # do multiword roots which are in these forms
   #     xxxx yyyy zzzz
@@ -1056,16 +1066,25 @@ sub processRoot {
   }
   #
   # write root record
+  # Some roots are just xxxx See yyyy. They will be skipped because they
+  # have no entries but will be added later by the alternates code.
   #
   if ($entryCount > 0) {
     writeRoot(convertString($currentRoot,"root",$rootLineNumber),$currentRoot,$currentLetter,$quasiRoot,scalar(@alternates));
     if (scalar(@alternates) > 0) {
       my $id = $dbh->func('last_insert_rowid');
+      my $quasi = 0;
       foreach my $word (@alternates) {
-        writeAlternate(convertString($word,"alternateroot",$rootLineNumber),$word,$currentLetter,$quasiRoot,$id);
+        if ($word =~ /quasi/) {
+          $quasi = 1;
+          next;
+        }
+        writeAlternate(convertString($word,"alternateroot",$rootLineNumber),$word,$currentLetter,$quasi,$id);
+        $quasi = 0;
       }
     }
   }
+
   #
   # Process each <entryFree> for the root
   #
@@ -1214,6 +1233,10 @@ sub processRoot {
                    $currentRoot,
                    @currentForms);
       }
+      # for use by the alternates
+      if (! $firstNodeId ) {
+        $firstNodeId = $currentNodeId;
+      }
       if ($currentNodeId !~ /-/) {
         $lastNodeId = $currentNodeId;
       }
@@ -1221,6 +1244,72 @@ sub processRoot {
       print $plog "Parse warning 3: No node or word\n";
       $genWarning++;
     }
+  }
+  #
+  # write alternates ?
+  #
+  #
+  my $quasi = 0;
+  my $see = 0;
+  my $jumpToRoot;
+  my $jumpFromRoot;
+  for (my $i=0; $i < scalar(@alternates);$i++)  {
+    if ($node->toString =~ /See Supplement/i) {
+      # TODO what to do with these
+      #      probably nothing, since if they are in the supplement they will be loaded
+      last;
+    }
+    my $alternate = $alternates[$i];
+    if ($alternate =~ /quasi/i) {
+      $quasi = 1;
+      next;
+    }
+    if ($alternate =~ /see/i) {
+      $see = 1;
+      next;
+    }
+    if ($see) {
+      $jumpFromRoot = $currentRoot;
+      $jumpToRoot = $alternate;
+    }
+    else {
+      $jumpFromRoot = $alternate;
+      $jumpToRoot = $currentRoot;
+    }
+    # they all have the same letter
+    #
+    writeRoot(convertString($jumpFromRoot,"root",$rootLineNumber),$jumpFromRoot,$currentLetter,$quasi,0);
+
+    #
+    # Now right a simple entry record that has something like this but pointing to root
+    # <foreign lang="ar" goto="44316" nodeid="n7560" linkid="103440" bareword="1">ﻢِﺣْﺭَﺎﺛْ</foreign>
+    # using the firstNode for the just written root
+    #
+    # create a new nodeid
+    # my $j = -1;
+
+    # if ($lastNodeId =~ /-(\d+)$/) {
+    #   $j = $1;
+    # }
+    # $lastNodeId =~ s/-\d+//;
+    # $j++;
+    # if (! $firstNodeId ) {
+    #   print STDERR "no node for : [$currentRoot][$entryCount][$alternate]\n";
+    #   print STDERR $node->toString;
+    # }
+    $jumpId++;
+    my $nodeid = sprintf "j%d",$jumpId;
+    my $xml = sprintf "<entryFree id=\"%s\" key=\"%s\" type=\"main\">",$nodeid,convertString($jumpFromRoot,"root",$rootLineNumber);
+    $xml .= " See ";
+    $xml .= sprintf "<foreign lang=\"ar\" jumptoroot=\"%s\" nodeid=\"%s\">%s</foreign>",
+      $jumpToRoot,$nodeid,convertString($jumpToRoot,"root",$rootLineNumber);
+
+    $xml .= "</entryFree>";
+    writeEntry(convertString($jumpFromRoot,"root",$rootLineNumber),$jumpFromRoot,
+               convertString($jumpFromRoot,"word",$entryLineNumber),
+               "",$nodeid,$i,$xml,$xml);
+    $quasi = 0;
+    $see = 0;
   }
 }
 ############################################################
@@ -1795,6 +1884,15 @@ sub setLinksForNode {
     }
   }
   #
+  #
+  #
+  if ($nodeName eq "foreign") {
+    my $attr = $node->getAttributeNode("jumptoroot");
+    if ($attr) {
+      return;
+    }
+  }
+  #
   #  can it have multiple text nodes ?
   #
   if ($node->hasChildNodes) {
@@ -1874,8 +1972,8 @@ sub setLinksForNode {
   }
 }
 #############################################################
-#
-#
+# can optionally just do links for letter supplied as param
+# otherwise it will do all
 ############################################################
 sub setLinks {
   my $letter = shift;
@@ -2388,7 +2486,7 @@ sub postParse() {
     $linksMode = 1;
     my $linklog = File::Spec->catfile($logDir,"link.log");
     open($llog,">:encoding(UTF8)",$linklog);
-    setLinks($linkletter) ;
+    setLinks();#$linkletter) ;
 }
 #############################################################
 #

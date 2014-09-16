@@ -44,22 +44,22 @@ test:
 	perl lane.pl --db ${xml}.sqlite --initdb --overwrite --xml ./test/${xml}.xml --no-context --logbase test --sql ./lexicon_schema.sql
 #
 # use this test a single Perseus file
-#
+# make -f util.mak xml=s0 onefile
+# without specify --log-dir, logfile will be written to the system temporary directory
 #
 onefile:
 	./version.sh
-	perl lane.pl --db ${xml}.sqlite --initdb --overwrite --xml ../xml/${xml}.xml --no-context --verbose --logbase ${xml} --sql ./lexicon_schema.sql --with-perseus
-#	cp jeem.sqlite /tmp
-#	perl lane.pl --db jeem.sqlite --set-links
+	perl lane.pl --db ${xml}.sqlite --initdb --overwrite --xml ../xml/${xml}.xml --no-context --verbose --sql ./lexicon_schema.sql --with-perseus --do-all
 lexicon:
 	./version.sh
 	perl lane.pl --db lexicon.sqlite --initdb --overwrite --dir .../xml --no-context --verbose --logbase lexicon --sql ./lexicon_schema.sql
+	#
+	# this one does everything, using the -do-all option instead of doing it step by step (like in 'full' below)
+	#
 build:
 	./version.sh
 	perl lane.pl --db lexicon.sqlite --initdb --overwrite -dir ../xml --no-context --verbose --log-dir ../logs --sql ./lexicon_schema.sql --do-all --show-progress 
 	perl reports.pl --db lexicon.sqlite --log-dir ../logs --dbid `cat LASTRUNID` --dir ../xml 
-test1:
-	perl reports.pl --db lexicon.sqlite --log-dir /tmp --dbid `cat LASTRUNID` --dir ../xml 
 #
 #
 #      run this to get a complete database
