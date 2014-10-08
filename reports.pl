@@ -221,7 +221,7 @@ $xml,$lineno,$root,$word,$node,$vol,$errChar,$position,$text
 .
 
   format TYPE6_TOP =
-@<<<<<<<<<                                    Type 6 Error Report (@<<<<<<<<<<<<<<<)                                                                             Page @<<<<
+@<<<<<<<<<                                  Type 6-9 Error Report (@<<<<<<<<<<<<<<<)                                                                             Page @<<<<
 $rundate,$dbId,$%
 
 File       Line No    Root            Word                               Node         Vol/Page   Text
@@ -269,7 +269,7 @@ $xml,$lineno,$root,$word,$node,$vol,$text
       chomp;
       /^(\d+),/;
       $errType = $1;
-      if (($errType == 4) || ($errType == 6)) {
+      if (($errType == 4) || (($errType >= 6) && ($errType <= 9))) {
         @words = split ",",$_;
         $root = $words[2];
         if (length $words[3] > 30) {
@@ -288,7 +288,7 @@ $xml,$lineno,$root,$word,$node,$vol,$text
         if ($errType == 4) {
         write $out4f;
       }
-        if ($errType == 6) {
+        if (($errType >= 6) && ($errType <= 9)) {
           write $out6f;
       }
         # if (($out4f->format_lines_left == 0) && ($count > 0)) {
@@ -390,7 +390,7 @@ $filename,$type2,$type3,$type4,$type5,$type6,$typeother
        elsif (/^5/) {
          $type5++;
        }
-       elsif (/^6/) {
+       elsif (/^(6|7|8|9)/) {
          $type6++;
        }
        else {

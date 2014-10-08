@@ -318,6 +318,18 @@ sub convertString {
       writelog($blog,sprintf "6,%s,%s,%s,%s,%s,V%d/%d,%s", $proctype,$currentRoot,$currentWord,$currentNodeId,$t,getVolForPage($currentPage),$currentPage,$lineno);
     $t =~ s/A_/I/g;
     }
+    if ($t =~ /A\^/) {
+      writelog($blog,sprintf "7,%s,%s,%s,%s,%s,V%d/%d,%s", $proctype,$currentRoot,$currentWord,$currentNodeId,$t,getVolForPage($currentPage),$currentPage,$lineno);
+    $t =~ s/A\^/O/g;
+    }
+    if ($t =~ /y\^/) {
+      writelog($blog,sprintf "8,%s,%s,%s,%s,%s,V%d/%d,%s", $proctype,$currentRoot,$currentWord,$currentNodeId,$t,getVolForPage($currentPage),$currentPage,$lineno);
+    $t =~ s/y\^/}/g;
+    }
+    if ($t =~ /w\^/) {
+      writelog($blog,sprintf "9,%s,%s,%s,%s,%s,V%d/%d,%s", $proctype,$currentRoot,$currentWord,$currentNodeId,$t,getVolForPage($currentPage),$currentPage,$lineno);
+    $t =~ s/w\^/W/g;
+    }
     # get rid of the &c,
     # this might need fixing properly
     # may when proctype = "word" or "root" we can strip it out
