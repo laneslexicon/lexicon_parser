@@ -309,10 +309,10 @@ sub convertString {
       writelog($blog,sprintf "2,%s,%s,%s,%s,V%d/%d,%s", $currentRoot,$currentWord,$currentNodeId,$t,getVolForPage($currentPage),$currentPage,$lineno);
 #      return $t;
     }
-    # convert all A@ to L
+    # convert all A@ to { for alef wasl
     if ($t =~ /A@/) {
       writelog($blog,sprintf "4,%s,%s,%s,%s,%s,V%d/%d,%s", $proctype,$currentRoot,$currentWord,$currentNodeId,$t,getVolForPage($currentPage),$currentPage,$lineno);
-      $t =~ s/A@/L/g;
+      $t =~ s/A@/{/g;
     }
     if ($t =~ /A_/) {
       writelog($blog,sprintf "6,%s,%s,%s,%s,%s,V%d/%d,%s", $proctype,$currentRoot,$currentWord,$currentNodeId,$t,getVolForPage($currentPage),$currentPage,$lineno);
@@ -362,16 +362,16 @@ sub convertString {
   $c += ($t =~ tr/DTZEg\-f/\x{636}\x{637}\x{638}\x{639}\x{63a}\x{640}\x{641}/);
   $c += ($t =~ tr/qklmnhw/\x{642}\x{643}\x{644}\x{645}\x{646}\x{647}\x{648}/);
   $c += ($t =~ tr/YyFNKau/\x{649}\x{64a}\x{64b}\x{64c}\x{64d}\x{64e}\x{64f}/);
-  # check ` for alef wasla - is this right
+  # ` for dagger alef
+  # { for alef wasla
   $c += ($t =~ tr/i~o`{/\x{650}\x{651}\x{652}\x{670}\x{671}/);
 
 
   $c += ($t =~ tr/PJVG/\x{67e}\x{686}\x{6a4}\x{6af}/);
-  # ^ as hamza above
-  # = alef with madda above (in buckwalter docs is |)
-  # _ tatweel , also - above
-  # L alef wasla
-  $c += ($t =~ tr/^=_L/\x{654}\x{622}\x{640}\x{671}/);
+  # ^ hamza above
+  # = madda above
+  # _ hamza below
+  $c += ($t =~ tr/^=_/\x{654}\x{653}\x{655}/);
 
 
 #  $c += ($t =~ tr/PJVG/\x{67e}\x{686}\x{6a4}\x{6af}/);
