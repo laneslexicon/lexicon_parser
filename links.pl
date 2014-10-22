@@ -335,12 +335,12 @@ sub lookupWord {
   if ($rec) {
     return ($rec->{id},$rec->{nodeId},$rec->{word},1);
   }
-  $lookupsth->bind_param(1,$word . chr(0x64c));
-  $lookupsth->execute();
-  $rec = $lookupsth->fetchrow_hashref;
-  if ($rec) {
-    return ($rec->{id},$rec->{nodeId},$rec->{word},2);
-  }
+  # $lookupsth->bind_param(1,$word . chr(0x64c));
+  # $lookupsth->execute();
+  # $rec = $lookupsth->fetchrow_hashref;
+  # if ($rec) {
+  #   return ($rec->{id},$rec->{nodeId},$rec->{word},2);
+  # }
   my $count = ($word =~ tr/\x{64b}-\x{652}\x{670}\x{671}//d);
   my $bareword;
   $baresth->bind_param(1,$word);
@@ -360,10 +360,9 @@ sub setLinks {
   my $attrnode;
   my $entrysth;
   my $linktext;
-
   my $linkToNode;
   if (! $node ) {
-    $sql = "select id,root,broot,word,bword,nodeId,xml,page from entry where datasource = 1";
+    $sql = "select id,root,broot,word,bword,nodeId,xml,page from entry where datasource = 1 order by nodenum asc";
     $entrysth = $dbh->prepare($sql);
   } else {
     $sql = "select id,root,broot,word,bword,nodeId,xml,page from entry where datasource = 1 and nodeid = ?";
@@ -391,8 +390,9 @@ sub setLinks {
       if ($attrnode && ($attrnode->value eq "arrow")) {
         $arrowsCount++;
         $linktext = $node->textContent;
-        if ($linktext) {
-          my ($linkToId,$linkToNode,$linkToWord,$linkType) = lookupWord($linktext);
+        my @words = split /\s/,$linktext;
+        if ($words[0]) {
+          my ($linkToId,$linkToNode,$linkToWord,$linkType) = lookupWord($words[0]);
           if ($linkToNode) {
             print  $logfh sprintf "%d,%s,%s,%s,%s,%s\n",$linkType,$linktext,$nodeId,decode("UTF-8",$word),$linkToNode,decode("UTF-8",$linkToWord);
             $resolvedArrows++;
