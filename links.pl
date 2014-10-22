@@ -352,6 +352,33 @@ sub lookupWord {
   }
   return ();
 }
+sub findLink {
+  my $text = shift;
+  my @words;
+  $text =~ s/^\s+//g;
+  $text =~ s/\s+$//g;
+  if ($text =~ /\s/) {
+    push @words,$text;
+    push @words,split /\s/,$text;
+  }
+  else {
+    push @words,$text;
+  }
+  my @matches;
+  my ($linkToId,$linkToNode,$linkToWord,$linkType);
+  my $wordMatched;
+  foreach my $linkword (@words) {
+    ($linkToId,$linkToNode,$linkToWord,$linkType) = lookupWord($linkword);
+    if ($linkToNode) {
+      push @matches,{ node => $linkToNode,
+                      id => $linkToId,
+                      word => decode("UTF-8",$linkToWord),
+                      type => $linkType };
+    }
+  }
+#  print Data::Dumper->Dump([\@matches],[qw(matches)]);
+  return @matches;
+}
 sub setLinks {
   my $node = shift;
   my $parser = XML::LibXML->new;
@@ -390,16 +417,14 @@ sub setLinks {
       if ($attrnode && ($attrnode->value eq "arrow")) {
         $arrowsCount++;
         $linktext = $node->textContent;
-        my @words = split /\s/,$linktext;
-        if ($words[0]) {
-          my ($linkToId,$linkToNode,$linkToWord,$linkType) = lookupWord($words[0]);
-          if ($linkToNode) {
-            print  $logfh sprintf "%d,%s,%s,%s,%s,%s\n",$linkType,$linktext,$nodeId,decode("UTF-8",$word),$linkToNode,decode("UTF-8",$linkToWord);
-            $resolvedArrows++;
-          }
-          else {
-            print $logfh sprintf "0,%s,%s\n",$linktext,$nodeId;
-          }
+        my @matches = findLink($linktext);
+        if ((scalar @matches) > 0) {
+          my ($linkToId,$linkToNode,$linkToWord,$linkType);
+#          print  $logfh sprintf "%d,%s,%s,%s,%s,%s,%s\n",$linkType,$linktext,$wordMatched,$nodeId,decode("UTF-8",$word),$linkToNode,decode("UTF-8",$linkToWord);
+          $resolvedArrows++;
+        }
+        else {
+          print $logfh sprintf "0,%s,%s\n",$linktext,$nodeId;
         }
       }
     }
