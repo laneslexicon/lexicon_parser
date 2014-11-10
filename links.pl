@@ -24,12 +24,15 @@ my $verbose=0;
 my $dbh;
 my $lookupsth;
 my $baresth;
+my $headsth;
 my $linkCount=0;
 my $arrowsCount=0;
 my $resolvedArrows=0;
+my $multiMatches=0;
 my $unresolvedArrows=0;
 my $writeCount=0;
 my $logfh;
+my $headfh;
 my @links;
 my $linkType;
 my $currentRecordId;
@@ -37,8 +40,198 @@ my $commitCount = 500;
 my $updateNode;
 my $currentWord;
 my $currentNodeId;
+my $headwords=0;
+my $noUpdate=0;
+my $showXml=0;
+my $showHelp=0;
 binmode STDERR, ":utf8";
 binmode STDOUT, ":utf8";
+######################################################
+#
+# this block of code reads through the head words
+# and for those that have > 1 word, tries to find the
+# single head that best matches the root
+#
+# (it also prints all the buckwalter characters it finds,
+# but that's not relevant)
+#
+######################################################
+sub build_rx {
+  my $word = shift;
+  my @letters = split '',$word;
+  my $rx = "";
+  foreach my $letter (@letters) {
+    $rx .= $letter;
+    $rx .= "\\w*";
+  }
+  return $rx;
+
+}
+sub find_word {
+  my $root = shift;
+  my $entry = shift;
+
+  my $rx = build_rx($root);
+  my @words = split /\s+/,$entry;
+  my $ix = -1;
+  for (my $j=0;$j < scalar(@words);$j++) {
+    #      print STDERR sprintf "Checking %s\n",$words[$j];
+    if ($words[$j] =~ /$rx/) {
+      return $j;
+    }
+  }
+  return -1;
+}
+sub find_headwords {
+  my %b;
+  my @bletters;
+  my $bletter;
+  my $dbname = shift;
+  my $writeCount = 0;
+  my $commitCount = 500;
+  my $updateCount = 0;
+  openDb($dbname);
+  if (! $dbh) {
+    print STDERR "Failed to open db $dbname\n";
+    return;
+  }
+  my $sth = $dbh->prepare("select id,root,broot,word,bword,nodeId from entry");
+  my $update = $dbh->prepare("update entry set headword = ? where id = ?");
+  if ( $update->err )    {
+    die "ERROR return code:" . $update->err . " error msg: " . $update->errstr . "\n";
+  }
+  my $max = 100;
+
+
+  my $i = 0;
+  my $rx;
+  my $word_index;
+  my $candidate_count = 0;
+  my $match_count = 0;
+  my $wy = 0;
+  my $root;
+  my $head;
+  my $rec;
+  $sth->execute();
+  while ($rec = $sth->fetchrow_arrayref) {
+    #  my ($id,$root,$broot,$word,$bword,$nodeid) = split '|', $_;
+    @bletters = split '',$rec->[4];
+    for (my $i=0;$i < scalar(@bletters);$i++) {
+      $bletter = $bletters[$i];
+      my $c = -1;
+      if ( exists $b{$bletter} ) {
+        $c = $b{$bletter};
+      }
+      $b{$bletter} = $c + 1;
+    }
+    $head = decode("UTF-8",$rec->[3]);
+    my @words = split /\s+/,$head;
+    if (scalar(@words) > 1) {
+      $root = decode("UTF-8",$rec->[1]);
+      $word_index = find_word($root,$head);
+      $candidate_count++;
+      if ($word_index == -1) {
+        if ($root =~ /\N{ARABIC LETTER WAW}/) {
+          my $r = $root;
+          $r =~ s/\N{ARABIC LETTER WAW}/\N{ARABIC LETTER ALEF}/;
+          $word_index = find_word($r,$head);
+          if ($word_index == -1) {
+            $r = $root;
+            $r =~ s/\N{ARABIC LETTER WAW}/\N{ARABIC LETTER YEH}/;
+            $word_index = find_word($r,$head);
+          }
+          if ($word_index == -1) {
+            $r = $root;
+            $r =~ s/\N{ARABIC LETTER WAW}/\N{ARABIC LETTER ALEF MAKSURA}/;
+            $word_index = find_word($r,$head);
+          }
+        }
+      }
+      if ($word_index == -1) {
+        if ($root =~ /\N{ARABIC LETTER ALEF MAKSURA}$/) {
+          my $r = $root;
+          $r =~ s/\N{ARABIC LETTER ALEF MAKSURA}$/\N{ARABIC LETTER ALEF}/;
+          $word_index = find_word($r,$head);
+          if ($word_index == -1) {
+            $r = $root;
+            $r =~ s/\N{ARABIC LETTER WAW}/\N{ARABIC LETTER YEH}/;
+            $word_index = find_word($r,$head);
+          }
+          if ($word_index == -1) {
+            $r = $root;
+            $r =~ s/\N{ARABIC LETTER WAW}/\N{ARABIC LETTER ALEF MAKSURA}/;
+            $word_index = find_word($r,$head);
+          }
+        }
+      }
+      if ($word_index == -1) {
+        if ($root =~ /\N{ARABIC LETTER YEH}/) {
+          my $r = $root;
+          $r =~ s/\N{ARABIC LETTER YEH}/\N{ARABIC LETTER ALEF}/;
+          $word_index = find_word($r,$head);
+        }
+      }
+      if ($word_index == -1) {
+        if ($root =~ /\N{ARABIC LETTER ALEF}/) {
+          my $r = $root;
+          $r =~ s/\N{ARABIC LETTER ALEF}/\N{ARABIC LETTER ALEF MAKSURA}/;
+          $word_index = find_word($r,$head);
+        }
+      }
+      if ($word_index == -1) {
+        my $r = $root;
+        $r =~ s/.$//;
+        $word_index = find_word($r,$head);
+      }
+      if ($word_index == -1) {
+        my $r = $root;
+        $r =~ s/^.//;
+        $word_index = find_word($r,$head);
+      }
+      if ($word_index != -1) {
+        $update->bind_param(1,$words[$word_index]);
+#        print STDERR "Updating with:" . $words[$word_index] . "\n";
+        $update->bind_param(2,$rec->[0]);
+        $update->execute();
+        if ( $update->err )    {
+          die "ERROR return code:" . $update->err . " error msg: " . $update->errstr . "\n";
+        }
+        $writeCount++;
+        $updateCount++;
+        if ($writeCount > $commitCount) {
+          $dbh->commit;
+          $writeCount = 0;
+        }
+      }
+      print $headfh sprintf "%d[%s][%s][%s][%s][%s]\n",$word_index,$rec->[5],$root,$rec->[2],$head,$rec->[4];
+      #    }
+      if ($word_index != -1) {
+        $match_count++;
+      }
+      #print $rec->[4] . "\n";
+    }
+    $i++;
+    #  if ($i > $max) {
+    #    last;
+    #  }
+
+  }
+  if ($writeCount > 0) {
+    $dbh->commit;
+  }
+  print STDERR sprintf "Candidates %d, matches %d, updates %d\n",$candidate_count,$match_count,$updateCount;
+#    print sort keys %b;
+#    print "\n";
+#    foreach $bletter (sort keys %b) {
+#      print sprintf "[%s][%04x]\t%d\n",$bletter,ord($bletter),$b{$bletter};
+#    }
+#  }
+}
+###############################################################
+#
+# end headword code
+#
+##############################################################
 ################################################################
 #
 #
@@ -255,10 +448,10 @@ sub setLinksOld {
   my $sql;
   my $entrysth;
   if (! $node ) {
-    $sql = "select id,root,broot,word,bword,nodeId,xml,page from entry where datasource = 1";
+    $sql = "select id,root,broot,word,bword,nodeId,xml,page,headword from entry where datasource = 1";
     $entrysth = $dbh->prepare($sql);
   } else {
-    $sql = "select id,root,broot,word,bword,nodeId,xml,page from entry where datasource = 1 and nodeid = ?";
+    $sql = "select id,root,broot,word,bword,nodeId,xml,page,headword from entry where datasource = 1 and nodeid = ?";
     $entrysth = $dbh->prepare($sql);
     $entrysth->bind_param(1,$node);
   }
@@ -341,6 +534,11 @@ sub lookupWord {
   # if ($rec) {
   #   return ($rec->{id},$rec->{nodeId},$rec->{word},2);
   # }
+  $headsth->bind_param(1,$word);
+  $rec = $lookupsth->fetchrow_hashref;
+  if ($rec) {
+    return ($rec->{id},$rec->{nodeId},$rec->{word},4);
+  }
   my $count = ($word =~ tr/\x{64b}-\x{652}\x{670}\x{671}//d);
   my $bareword;
   $baresth->bind_param(1,$word);
@@ -372,6 +570,7 @@ sub findLink {
     if ($linkToNode) {
       push @matches,{ node => $linkToNode,
                       id => $linkToId,
+                      matchedword => $linkword,
                       word => decode("UTF-8",$linkToWord),
                       type => $linkType };
     }
@@ -402,6 +601,7 @@ sub setLinks {
 
   my $lastentrysth;
   my @entry;
+
   $entrysth->execute();
   while (@entry = $entrysth->fetchrow_array()) {
     my ($id, $root,$broot,$word,$bword,$nodeId,$xml,$page) = @entry;
@@ -409,18 +609,41 @@ sub setLinks {
     $doc->setEncoding("UTF-8");
     my $nodes = $doc->getElementsByTagName("orth");
     my $n = $nodes->size();
+    my $printHeader=0;
     $currentRecordId = $id;
     for (my $i = 0; $i < $n; $i++) {
       $#links = -1;             # clear old links
       my $node = $nodes->item($i);
       $attrnode = $node->getAttributeNode("type");
       if ($attrnode && ($attrnode->value eq "arrow")) {
+        if ($verbose && !$printHeader ) {
+          print STDERR $nodeId . "\n";
+          $printHeader = 1;
+        }
+        if ($showXml) {
+            print STDERR $node->toString . "\n";
+          }
         $arrowsCount++;
         $linktext = $node->textContent;
         my @matches = findLink($linktext);
+        if ((scalar @matches) > 1) {
+          $multiMatches++;
+        }
         if ((scalar @matches) > 0) {
+          for(my $j=0;$j <= $#matches;$j++) {
+          my $m = $matches[$j];
           my ($linkToId,$linkToNode,$linkToWord,$linkType);
-#          print  $logfh sprintf "%d,%s,%s,%s,%s,%s,%s\n",$linkType,$linktext,$wordMatched,$nodeId,decode("UTF-8",$word),$linkToNode,decode("UTF-8",$linkToWord);
+          print  $logfh sprintf "‎ %d,%d,%s,%s,%s,%s,%s\n",
+            scalar(@matches),
+            $m->{type},
+            $linktext,
+              $nodeId,
+            $m->{matchedword},
+            $m->{node},
+            $m->{word}; #$nodeId,decode("UTF-8",$word),$linkToNode,decode("UTF-8",$linkToWord);
+        }
+          ### update the node xml
+          ### and then write it back to the db
           $resolvedArrows++;
         }
         else {
@@ -435,19 +658,42 @@ sub setLinks {
     $writeCount = 0;
   }
   print STDERR sprintf "Links count %d, resolved : %d (%d)\n",$arrowsCount,$resolvedArrows,($arrowsCount - $resolvedArrows);
+  print STDERR sprintf "Multiple matches %d\n",$multiMatches;
 }
 ###########################################################################
 # main
+#
+# eg perl links.pl --db vanilla.sqlite --node n9017
 ##########################################################################
 GetOptions(
            "db=s" => \$dbName,
            "node=s" => \$nodeName,
            "log-dir=s" => \$logDir,
-           "verbose" => \$verbose
+           "verbose" => \$verbose,
+           "heads" => \$headwords,
+           "no-update" => \$noUpdate,
+           "with-xml" => \$showXml,
+           "help" => \$showHelp
           );
+if ($showHelp) {
+  print STDERR "--db <name of sqlite file>   use the supplied database\n";
+  print STDERR "--node <node number>         do only the given node or comma separated nodes\n";
+  print STDERR "--log-dir <directory>        write log file to given directory, defaults to current\n";
+  print STDERR "--no-update                  do not update the database\n";
+  print STDERR "--with-xml                   print the before/after XML to STDERR\n";
+  print STDERR "--help                       print this\n";
+  exit 1;
 
+}
 if (! $logDir ) {
   $logDir = ".";
+}
+
+if ($headwords) {
+  my $logfile = File::Spec->catfile($logDir,"heads.log");
+  open($headfh,">:encoding(UTF8)",$logfile) or die "Cannot open logfile $@\n";
+  find_headwords($dbName);
+  exit 0;
 }
 my $linklog = File::Spec->catfile($logDir,"link.log");
 open($logfh,">:encoding(UTF8)",$linklog) or die "Cannot open logfile $@\n";
@@ -458,4 +704,23 @@ if (! $dbName ) {
 openDb($dbName);
 $lookupsth = $dbh->prepare("select id,word,bword,nodeId from entry where word = ? and datasource = 1");
 $baresth = $dbh->prepare("select id,word,bword,bareword,nodeId from entry where bareword = ? and datasource = 1");
-setLinks($nodeName);
+$headsth = $dbh->prepare("select id,word,bword,bareword,nodeId,headword from entry where headword = ? and datasource = 1");
+my @nodes;
+
+@nodes = split /,/,$nodeName;
+if ($nodeName) {
+  foreach my $node (@nodes) {
+    $node =~ s/^\s+//g;
+    $node =~ s/\s+//g;
+    setLinks($node);
+    # clear the counters
+    $linkCount=0;
+    $arrowsCount=0;
+    $resolvedArrows=0;
+    $multiMatches=0;
+    $unresolvedArrows=0;
+  }
+}
+else {
+  setLinks();
+}
