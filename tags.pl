@@ -129,9 +129,7 @@ sub parseDirectory {
 
 }
 sub test {
-  my $xml;
-  #$xml = "test/test_j0.xml";
-  $xml = "xml/j0.xml";
+  my $xml = shift;
   my $parser = XML::LibXML->new;
   my $doc = $parser->parse_file($xml);
 
@@ -176,5 +174,5 @@ sub scanAll {
 
 }
 
-test();
-#scanAll();
+#test("n9017.xml");
+scanAll();

@@ -2495,10 +2495,10 @@ sub postParse() {
     $diacriticsMode = 1;
     stripDiacritics();
     fix_supplement_itype();
-    $linksMode = 1;
-    my $linklog = File::Spec->catfile($logDir,"link.log");
-    open($llog,">:encoding(UTF8)",$linklog);
-    setLinks();#$linkletter) ;
+#    $linksMode = 1;
+#    my $linklog = File::Spec->catfile($logDir,"link.log");
+#    open($llog,">:encoding(UTF8)",$linklog);
+#    setLinks();#$linkletter) ;
 }
 #############################################################
 #

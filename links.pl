@@ -17,8 +17,8 @@ use Getopt::Long;
 use Time::HiRes qw( time );
 use FileHandle;
 
-my $dbName;
-my $nodeName;
+my $dbName = "";
+my $nodeName = "";
 my $logDir = "";
 my $verbose=0;
 my $dbh;
@@ -519,6 +519,12 @@ sub setLinksOld {
   }
   print STDERR "Links count $arrowsCount, unresolved : $unresolvedArrows\n";
 }
+################################################
+# link match types:
+#  1  : word
+#  2  : headword
+#  3  : bareword
+###############################################
 sub lookupWord {
   my $word = shift;
 
@@ -526,18 +532,12 @@ sub lookupWord {
   $lookupsth->execute();
   my $rec = $lookupsth->fetchrow_hashref;
   if ($rec) {
-    return ($rec->{id},$rec->{nodeId},$rec->{word},1);
+    return ($rec->{id},$rec->{root},$rec->{nodeId},$rec->{word},$rec->{page},1);
   }
-  # $lookupsth->bind_param(1,$word . chr(0x64c));
-  # $lookupsth->execute();
-  # $rec = $lookupsth->fetchrow_hashref;
-  # if ($rec) {
-  #   return ($rec->{id},$rec->{nodeId},$rec->{word},2);
-  # }
   $headsth->bind_param(1,$word);
   $rec = $lookupsth->fetchrow_hashref;
   if ($rec) {
-    return ($rec->{id},$rec->{nodeId},$rec->{word},4);
+    return ($rec->{id},$rec->{root},$rec->{nodeId},$rec->{word},$rec->{page},2);
   }
   my $count = ($word =~ tr/\x{64b}-\x{652}\x{670}\x{671}//d);
   my $bareword;
@@ -545,8 +545,17 @@ sub lookupWord {
   if ($baresth->execute()) {
     $rec = $baresth->fetchrow_hashref;
     if ($rec) {
-      return ($rec->{id},$rec->{nodeId},$rec->{word},3);
+      return ($rec->{id},$rec->{root},$rec->{nodeId},$rec->{word},$rec->{page},3);
     }
+  }
+  #
+  # don't need this, the bareword should catch them
+  #
+  $lookupsth->bind_param(1,$word . chr(0x64c));
+  $lookupsth->execute();
+  $rec = $lookupsth->fetchrow_hashref;
+  if ($rec) {
+    return ($rec->{id},$rec->{root},$rec->{nodeId},$rec->{word},$rec->{page},4);
   }
   return ();
 }
@@ -563,15 +572,17 @@ sub findLink {
     push @words,$text;
   }
   my @matches;
-  my ($linkToId,$linkToNode,$linkToWord,$linkType);
+  my ($linkToId,$linkToRoot,$linkToNode,$linkToWord,$linkType,$linkToPage);
   my $wordMatched;
   foreach my $linkword (@words) {
-    ($linkToId,$linkToNode,$linkToWord,$linkType) = lookupWord($linkword);
+    ($linkToId,$linkToRoot,$linkToNode,$linkToWord,$linkToPage,$linkType) = lookupWord($linkword);
     if ($linkToNode) {
       push @matches,{ node => $linkToNode,
                       id => $linkToId,
+                      root => decode("UTF-8",$linkToRoot),
                       matchedword => $linkword,
                       word => decode("UTF-8",$linkToWord),
+                      page => $linkToPage,
                       type => $linkType };
     }
   }
@@ -587,6 +598,7 @@ sub setLinks {
   my $entrysth;
   my $linktext;
   my $linkToNode;
+  my $updateRequired;
   if (! $node ) {
     $sql = "select id,root,broot,word,bword,nodeId,xml,page from entry where datasource = 1 order by nodenum asc";
     $entrysth = $dbh->prepare($sql);
@@ -596,8 +608,9 @@ sub setLinks {
     $entrysth->bind_param(1,$node);
   }
   my $updatesth = $dbh->prepare('update entry set xml = ? where id = ?');
-  $baresth = $dbh->prepare("select id,word,bword,bareword,nodeId from entry where bareword = ? and datasource = 1");
-  my $lookupsth = $dbh->prepare("select id,bword,nodeId from entry where word = ? and datasource = 1");
+  $baresth = $dbh->prepare("select id,root,word,bword,bareword,nodeId,page from entry where bareword = ? and datasource = 1");
+
+  my $lookupsth = $dbh->prepare("select id,root,bword,nodeId,page from entry where word = ? and datasource = 1");
 
   my $lastentrysth;
   my @entry;
@@ -610,19 +623,21 @@ sub setLinks {
     my $nodes = $doc->getElementsByTagName("orth");
     my $n = $nodes->size();
     my $printHeader=0;
+    $updateRequired = 0;
     $currentRecordId = $id;
     for (my $i = 0; $i < $n; $i++) {
       $#links = -1;             # clear old links
       my $node = $nodes->item($i);
       $attrnode = $node->getAttributeNode("type");
       if ($attrnode && ($attrnode->value eq "arrow")) {
+        # show node name
         if ($verbose && !$printHeader ) {
           print STDERR $nodeId . "\n";
           $printHeader = 1;
         }
         if ($showXml) {
-            print STDERR $node->toString . "\n";
-          }
+          print STDERR $node->toString . "\n";
+        }
         $arrowsCount++;
         $linktext = $node->textContent;
         my @matches = findLink($linktext);
@@ -631,30 +646,64 @@ sub setLinks {
         }
         if ((scalar @matches) > 0) {
           for(my $j=0;$j <= $#matches;$j++) {
-          my $m = $matches[$j];
-          my ($linkToId,$linkToNode,$linkToWord,$linkType);
-          print  $logfh sprintf "‎ %d,%d,%s,%s,%s,%s,%s\n",
-            scalar(@matches),
-            $m->{type},
-            $linktext,
+            my $m = $matches[$j];
+            my ($linkToId,$linkToNode,$linkToWord,$linkType);
+            print  $logfh sprintf "‎ %d,%d,%s,%s,%s,%s,%s\n",
+              scalar(@matches),
+              $m->{type},
+              $linktext,
               $nodeId,
-            $m->{matchedword},
-            $m->{node},
-            $m->{word}; #$nodeId,decode("UTF-8",$word),$linkToNode,decode("UTF-8",$linkToWord);
-        }
-          ### update the node xml
-          ### and then write it back to the db
-          $resolvedArrows++;
+              $m->{matchedword},
+              $m->{node},
+              $m->{word};
+          }
+          ### update the node xml,
+          my $matchIx = -1;
+          if (scalar(@matches) == 1) {
+            $matchIx = 0;
+          }
+          if (scalar(@matches) > 1) {
+            ### very much TODO
+            $matchIx = 0;
+          }
+          if ($matchIx != -1) {
+            my $m = $matches[$matchIx];
+            $node->setAttribute("goto",$m->{id});
+            $node->setAttribute("root",$m->{root});
+            $node->setAttribute("page",$m->{page});
+            $node->setAttribute("vol",getVolForPage($m->{page}));
+            $node->setAttribute("nodeid",$m->{node});
+            $node->setAttribute("matched",$m->{matchedword});
+            $node->setAttribute("linktype",$m->{type});
+            $updateRequired = 1;
+            if ($showXml) {
+              print STDERR $node->toString . "\n\n";
+            }
+            $resolvedArrows++;
+
+          }
         }
         else {
           print $logfh sprintf "0,%s,%s\n",$linktext,$nodeId;
         }
       }
     }
-  }
+    if (! $noUpdate && $updateRequired) {
+        my $xml = decode("UTF-8",$doc->toString);
+        $updatesth->bind_param(1,$xml);
+        $updatesth->bind_param(2,$id);
+        $updatesth->execute();
+        $writeCount++;
+        if ($writeCount > $commitCount) {
+          $dbh->commit();
+          #           $dbh->begin_work();
+          $writeCount = 0;
+        }
+      }
+#      print STDERR decode("UTF-8",$doc->toString) . "\n";
+    }
   if ($writeCount > 0) {
     $dbh->commit();
-    #    $dbh->begin_work();
     $writeCount = 0;
   }
   print STDERR sprintf "Links count %d, resolved : %d (%d)\n",$arrowsCount,$resolvedArrows,($arrowsCount - $resolvedArrows);
@@ -681,6 +730,7 @@ if ($showHelp) {
   print STDERR "--log-dir <directory>        write log file to given directory, defaults to current\n";
   print STDERR "--no-update                  do not update the database\n";
   print STDERR "--with-xml                   print the before/after XML to STDERR\n";
+  print STDERR "--heads                      Update the headword entry\n";
   print STDERR "--help                       print this\n";
   exit 1;
 
@@ -702,9 +752,9 @@ if (! $dbName ) {
   exit 0;
 }
 openDb($dbName);
-$lookupsth = $dbh->prepare("select id,word,bword,nodeId from entry where word = ? and datasource = 1");
-$baresth = $dbh->prepare("select id,word,bword,bareword,nodeId from entry where bareword = ? and datasource = 1");
-$headsth = $dbh->prepare("select id,word,bword,bareword,nodeId,headword from entry where headword = ? and datasource = 1");
+$lookupsth = $dbh->prepare("select id,root,word,bword,nodeId,page from entry where word = ? and datasource = 1");
+$baresth = $dbh->prepare("select id,root,word,bword,bareword,nodeId,page from entry where bareword = ? and datasource = 1");
+$headsth = $dbh->prepare("select id,root,word,bword,bareword,nodeId,headword,page from entry where headword = ? and datasource = 1");
 my @nodes;
 
 @nodes = split /,/,$nodeName;
