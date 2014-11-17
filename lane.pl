@@ -1035,12 +1035,6 @@ sub processRoot {
   }
   $currentRoot =~ s/&c\.*//;
   $currentRoot =~ s/&amp;/and/g;
-
-  # if ($currentRoot =~ /^\(.+\)$/) {
-  #   $currentRoot =~ s/^\(//;
-  #   $currentRoot =~ s/\)$//;
-
-  # }
   $currentRoot =~ s/[():,\.]//g;
 
   # some of the Quasi entries have : Quasi xxxx:
@@ -1063,13 +1057,14 @@ sub processRoot {
   #
   $currentRoot =~ s/\s+and\s+/ /g;
   $currentRoot =~ s/\s+or\s+/ /g;
+
   @alternates = split(/ {1,}/, $currentRoot);
   $currentRoot = shift @alternates;
   print $plog sprintf "[Root=%s][Quasi=%d][Entries=%d][Alternates=%d][TextLength=%d]\n",$currentRoot,$quasiRoot,$entryCount,scalar(@alternates),length $currentText;
   if ($entryCount > 0) {
     my $entry = $entries->item(0);
     $currentText = $entry->toString;
-    if ($currentText =~ /See\s+supplement/i) {
+    if ($currentText =~ /^\s*See\s+supplement\s*$/i) {
       $entryCount--;
       if ($entryCount > 0) {
         print $plog sprintf "ERROR: see supplement with entryCount > 1\n";
@@ -1109,7 +1104,6 @@ sub processRoot {
     my $key;
     my $ar_key;
     $skipRoot = 0;
-
     $currentWord = "";
     $currentNodeId = "";
     $currentItype = "";
@@ -1253,7 +1247,7 @@ sub processRoot {
         $lastNodeId = $currentNodeId;
       }
     } else {
-      print $plog "Parse warning 3: No node or word\n";
+      print $plog "Parse warning 3: No node ($currentNodeId) or word ($currentWord)\n";
       $genWarning++;
     }
   }
