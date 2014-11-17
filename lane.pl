@@ -1115,7 +1115,7 @@ sub processRoot {
     my $textNode = $entry->getFirstChild;
     if ($textNode->nodeType == XML_TEXT_NODE) {
       my $text = $textNode->nodeValue;
-      if (($text =~ /see\s+supplement/i) && ($entryCount == 1)) {
+      if (($text =~ /^\s*see\s+supplement\s*$/i) && ($entryCount == 1)) {
         $skipRoot = 1;
         $skipRootCount++;
         $verbose && print $plog "Root [$currentRoot] skipped, <see supplement> entry\n";
@@ -1150,6 +1150,22 @@ sub processRoot {
       $entry->setAttribute("id",$id);
       $currentStatus[0] = "m";
     }
+#     Some of letter entries from the supplement have no content. This skips them:
+#    <entryFree id="n42941" key="k" type="main">
+#                   <form>
+#                      <itype>alphabetical letter</itype>
+#                      <orth extent="full" lang="ar">k</orth>
+#                      <orth extent="full" lang="ar">*</orth>
+#                   </form>
+#   </entryFree>
+#
+    my @childnodes = $entry->childNodes();
+    if ($#childnodes == 2) {
+      if ($entry->findvalue("form/itype") eq "alphabetical letter") {
+        print $plog "Alphabetical letter entry with no content ignored: $id\n";
+        next;
+      }
+    }
     $keyAttr = $entry->getAttributeNode("key");
     if ($keyAttr) {
       $key = $keyAttr->getValue();
@@ -1163,7 +1179,7 @@ sub processRoot {
       #=============================
       # alef wasla  TODO ?
       #=============================
-      $currentWord =~ s/A@/L/g;
+    #  $currentWord =~ s/A@/L/g;
     }
     if ( ! $id ) {
       print $plog "Parse warning 4: No ID field\n";
