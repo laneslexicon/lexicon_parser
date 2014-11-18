@@ -830,7 +830,7 @@ sub writeRoot {
 }
 ######################################################################
 # $dbh->prepare("insert into root (word,bword,letter,bletter) values (?,?,?)");
-#
+# THIS IS NOT USED
 #####################################################################
 sub writeAlternate {
   my $word = shift;
@@ -1093,19 +1093,16 @@ sub processRoot {
   if ($entryCount > 0) {
     writeRoot(convertString($currentRoot,"root",$rootLineNumber),$currentRoot,$currentLetter,$quasiRoot,scalar(@alternates));
     if (scalar(@alternates) > 0) {
-      my $id = $dbh->func('last_insert_rowid');
-      my $quasi = 0;
-      # TODO
-      # NOTE: the gui application does not use the alternate table
-      #       so this code can be removed
-      foreach my $word (@alternates) {
-        if ($word =~ /quasi/) {
-          $quasi = 1;
-          next;
-        }
-        writeAlternate(convertString($word,"alternateroot",$rootLineNumber),$word,$currentLetter,$quasi,$id);
-        $quasi = 0;
-      }
+      # my $id = $dbh->func('last_insert_rowid');
+      # my $quasi = 0;
+      # foreach my $word (@alternates) {
+      #   if ($word =~ /quasi/) {
+      #     $quasi = 1;
+      #     next;
+      #   }
+      #   writeAlternate(convertString($word,"alternateroot",$rootLineNumber),$word,$currentLetter,$quasi,$id);
+      #   $quasi = 0;
+      # }
     }
   }
 
@@ -1292,6 +1289,11 @@ sub processRoot {
   my $see = 0;
   my $jumpToRoot;
   my $jumpFromRoot;
+#  if (scalar(@alternates) > 0) {
+#    print STDERR "Alternates for : $currentRoot\n";
+#    print STDERR @alternates;
+#    print STDERR "\n";
+#  }
   for (my $i=0; $i < scalar(@alternates);$i++) {
     if ($node->toString =~ /See Supplement/i) {
       # TODO what to do with these
@@ -1320,7 +1322,7 @@ sub processRoot {
     if ($jumpFromRoot ne $jumpToRoot) {
       writeRoot(convertString($jumpFromRoot,"root",$rootLineNumber),$jumpFromRoot,$currentLetter,$quasi,0);
       #
-      # Now right a simple entry record that has something like this but pointing to root
+      # Now writet a simple entry record that has something like this but pointing to root
       # <foreign lang="ar" goto="44316" nodeid="n7560" linkid="103440" bareword="1">ﻢِﺣْﺭَﺎﺛْ</foreign>
       $jumpId++;
       my $nodeid = sprintf "j%d",$jumpId;
