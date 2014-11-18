@@ -1046,8 +1046,8 @@ sub processRoot {
   # t0.xml, 3387,Quasi tqY: or, accord. to some, tqw
   # q0.xml,12374,qnf*, or, accord. to some, qf*
   #
-  $currentRoot =~ s/accord\s+to\s+some//;
-  $currentRoot =~ s/see\s+art/see/;
+  $currentRoot =~ s/accord\s+to\s+some//i;
+  $currentRoot =~ s/see\s+art/see/i;
 #    $currentRoot =~ "tqY and tqw";
 #  }
   #
