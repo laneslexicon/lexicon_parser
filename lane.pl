@@ -1027,12 +1027,14 @@ sub processRoot {
   $currentText = $node->toString;
 
   $rootLineNumber = $node->line_number();
-
+  my $savedRoot = $currentRoot;
   if ($currentRoot =~ /^\s*Quasi/i) {
     $quasiRoot = 1;
     $currentRoot =~ s/^\s*Quasi\s*//;
 
   }
+  $currentRoot =~ s/^\s+//g;
+  $currentRoot =~ s/\s+$//g;
   $currentRoot =~ s/&c\.*//;
   $currentRoot =~ s/&amp;/and/g;
   $currentRoot =~ s/[():,\.]//g;
