@@ -1031,13 +1031,12 @@ sub processRoot {
   if ($currentRoot =~ /^\s*Quasi/i) {
     $quasiRoot = 1;
     $currentRoot =~ s/^\s*Quasi\s*//;
-
   }
   $currentRoot =~ s/^\s+//g;
   $currentRoot =~ s/\s+$//g;
   $currentRoot =~ s/&c\.*//;
   $currentRoot =~ s/&amp;/and/g;
-  $currentRoot =~ s/[():,\.]//g;
+  $currentRoot =~ s/[\[\]():,\.]//g;
 
   # some of the Quasi entries have : Quasi xxxx:
   # TODO there is also: txm and quasi txm ???? (t0.xml)
@@ -1061,6 +1060,9 @@ sub processRoot {
   $currentRoot =~ s/\s+or\s+/ /g;
 
   @alternates = split(/ {1,}/, $currentRoot);
+  if (scalar(@alternates) > 1) {
+    print $plog sprintf "[alternates][%d][%s][%s]\n",$rootLineNumber,$savedRoot,$currentRoot;
+  }
   $currentRoot = shift @alternates;
   print $plog sprintf "[Root=%s][Quasi=%d][Entries=%d][Alternates=%d][TextLength=%d]\n",$currentRoot,$quasiRoot,$entryCount,scalar(@alternates),length $currentText;
   if ($entryCount > 0) {
@@ -1074,6 +1076,16 @@ sub processRoot {
     }
   }
   #
+  # this test while generalised, is really there to catch the root
+  # 'txm and quasi txm'
+  # we have stripped out 'and' so test for quasi and same root
+  #
+  if (scalar(@alternates) >= 2) {
+    if (($alternates[0] =~ /quasi/i) && ($alternates[1] =~ /$currentRoot/)) {
+      $quasiRoot = 2;
+    }
+  }
+  #
   # write root record
   # Some roots are just xxxx See yyyy. They will be skipped because they
   # have no entries but will be added later by the alternates code.
@@ -1083,6 +1095,9 @@ sub processRoot {
     if (scalar(@alternates) > 0) {
       my $id = $dbh->func('last_insert_rowid');
       my $quasi = 0;
+      # TODO
+      # NOTE: the gui application does not use the alternate table
+      #       so this code can be removed
       foreach my $word (@alternates) {
         if ($word =~ /quasi/) {
           $quasi = 1;
@@ -1277,7 +1292,7 @@ sub processRoot {
   my $see = 0;
   my $jumpToRoot;
   my $jumpFromRoot;
-  for (my $i=0; $i < scalar(@alternates);$i++)  {
+  for (my $i=0; $i < scalar(@alternates);$i++) {
     if ($node->toString =~ /See Supplement/i) {
       # TODO what to do with these
       #      probably nothing, since if they are in the supplement they will be loaded
@@ -1295,45 +1310,32 @@ sub processRoot {
     if ($see) {
       $jumpFromRoot = $currentRoot;
       $jumpToRoot = $alternate;
-    }
-    else {
+    } else {
       $jumpFromRoot = $alternate;
       $jumpToRoot = $currentRoot;
     }
+    #
     # they all have the same letter
     #
-    writeRoot(convertString($jumpFromRoot,"root",$rootLineNumber),$jumpFromRoot,$currentLetter,$quasi,0);
+    if ($jumpFromRoot ne $jumpToRoot) {
+      writeRoot(convertString($jumpFromRoot,"root",$rootLineNumber),$jumpFromRoot,$currentLetter,$quasi,0);
+      #
+      # Now right a simple entry record that has something like this but pointing to root
+      # <foreign lang="ar" goto="44316" nodeid="n7560" linkid="103440" bareword="1">ﻢِﺣْﺭَﺎﺛْ</foreign>
+      $jumpId++;
+      my $nodeid = sprintf "j%d",$jumpId;
+      my $xml = sprintf "<entryFree id=\"%s\" key=\"%s\" type=\"main\">",$nodeid,convertString($jumpFromRoot,"root",$rootLineNumber);
+      $xml .= " See ";
+      $xml .= sprintf "<foreign lang=\"ar\" jumptoroot=\"%s\" nodeid=\"%s\">%s</foreign>",
+        $jumpToRoot,$nodeid,convertString($jumpToRoot,"root",$rootLineNumber);
 
-    #
-    # Now right a simple entry record that has something like this but pointing to root
-    # <foreign lang="ar" goto="44316" nodeid="n7560" linkid="103440" bareword="1">ﻢِﺣْﺭَﺎﺛْ</foreign>
-    # using the firstNode for the just written root
-    #
-    # create a new nodeid
-    # my $j = -1;
-
-    # if ($lastNodeId =~ /-(\d+)$/) {
-    #   $j = $1;
-    # }
-    # $lastNodeId =~ s/-\d+//;
-    # $j++;
-    # if (! $firstNodeId ) {
-    #   print STDERR "no node for : [$currentRoot][$entryCount][$alternate]\n";
-    #   print STDERR $node->toString;
-    # }
-    $jumpId++;
-    my $nodeid = sprintf "j%d",$jumpId;
-    my $xml = sprintf "<entryFree id=\"%s\" key=\"%s\" type=\"main\">",$nodeid,convertString($jumpFromRoot,"root",$rootLineNumber);
-    $xml .= " See ";
-    $xml .= sprintf "<foreign lang=\"ar\" jumptoroot=\"%s\" nodeid=\"%s\">%s</foreign>",
-      $jumpToRoot,$nodeid,convertString($jumpToRoot,"root",$rootLineNumber);
-
-    $xml .= "</entryFree>";
-    writeEntry(convertString($jumpFromRoot,"root",$rootLineNumber),$jumpFromRoot,
-               convertString($jumpFromRoot,"word",$entryLineNumber),
-               "",$nodeid,$i,$xml,$xml);
-    $quasi = 0;
-    $see = 0;
+      $xml .= "</entryFree>";
+      writeEntry(convertString($jumpFromRoot,"root",$rootLineNumber),$jumpFromRoot,
+                 convertString($jumpFromRoot,"word",$entryLineNumber),
+                 "",$nodeid,$i,$xml,$xml);
+      $quasi = 0;
+      $see = 0;
+    }
   }
 }
 ############################################################
