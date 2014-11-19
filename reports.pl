@@ -114,6 +114,40 @@ sub getVolForPage {
   }
   return -1;
 }
+#
+# return list of xml in supplied directory, optionally passing each to supplied function
+#
+#
+sub parseDirectory {
+  my $d = shift;
+  my $fn = shift;
+  my @arr;
+  if (! -d $d ) {
+    print STDERR "No such directory:[$d]\n";
+    return @arr;
+
+  }
+  my @totals;
+
+  eval {
+
+    find sub { if ((-f $_) && ($File::Find::name =~ /xml$/))  {  push @arr,$File::Find::name; } }, $d;
+
+    foreach my $file (sort @arr) {
+      if ($fn) {
+        print $file . "\n\n";
+        $fn->($file);
+      }
+    }
+
+  };
+
+  if ($@) {
+    print STDERR "File::Find error opening directory:[$d]\n";
+    return @arr;
+  }
+  return sort @arr;
+}
 sub getLogDirectory {
   my $base = shift;
   my $dbid = shift;
@@ -540,6 +574,78 @@ sub check_double_questions {
   }
    close $dqh;
 }
+######################################
+# check all id="n<nnnn>" are loaded
+# as of 17th Nov reports:
+#../../xml/_Y1.xml 44783
+#../../xml/k1.xml 42941
+#../../xml/n1.xml 43791
+#../../xml/q1.xml 42505
+#../../xml/w1.xml 44412
+# These are the letter entries with no content
+# TODO copy this into reports.pl
+######################################
+sub check_nodes_loaded {
+  my $db = shift;
+  my $dbid = shift;
+  my $xmldir = shift;
+  my $node;
+  my $xml;
+  my @xmls = parseDirectory($xmldir);
+  openDb($db);
+  if (! $dbh ) {
+    return;
+  }
+  format NODE_TOP =
+@<<<<<<<<<<<<<<<<  Node Load Report                     Page @>>>
+$dbid,                                                          $%
+                   ================
+
+Only the following nodes should appear:
+../../xml/_Y1.xml 44783
+../../xml/k1.xml 42941
+../../xml/n1.xml 43791
+../../xml/q1.xml 42505
+../../xml/w1.xml 44412
+
+File              Node
+-------------------------------------------------------------------
+.
+  format NODE =
+@<<<<<<<<<<<<<<<@<<<<<<<
+$xml,            $node
+.
+
+  my $fh;
+  open($fh,">:encoding(UTF8)",catfile($logDir,"node_load.txt"));
+  $fh->format_name("NODE");
+  $fh->format_top_name("NODE_TOP");
+
+  my $query= $dbh->prepare("select id from entry where nodeId = ?");
+  foreach $xml (@xmls) {
+    open (IN,"<:utf8",$xml) or die "No file";
+    while (<IN>) {
+      chomp;
+      if (/id="n(\d+)"/) {
+        $node = $1;
+        if ($node) {
+          $query->bind_param(1,sprintf "n%d",$node);
+          $query->execute();
+          if (!$query->fetchrow_arrayref) {
+            write $fh;
+          }
+        }
+      }
+    }
+  }
+  $fh->close;
+}
+#################################################################
+#
+# find roots whose first letter does not match letter field
+#
+# this has been copied from check.pl
+#################################################################
 sub wrong_letter {
   my $db = shift;
   my $dbid = shift;
@@ -714,3 +820,4 @@ summaryStats($logDir,$dbid);
 convErrors($logDir,$dbid);
 wrong_letter($dbname,$dbid);
 check_long_roots($dbname,$dbid);
+check_nodes_loaded($dbname,$dbid,$xmlDir);
