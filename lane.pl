@@ -1349,6 +1349,9 @@ sub getLogDirectory {
   }
   # try to create the subdirectory
   my $logdir = catfile($base,$id);
+  if (-d $logdir ) {
+    return $logdir;
+  }
   if ( mkdir $logdir) {
     return $logdir;
   }
@@ -2517,13 +2520,20 @@ if (! $dbname ) {
   $dbname = sprintf "%s.sqlite",$dbId;
 }
 if ($sqlSource) {
-  open(SQL,"<$sqlSource");
-  while(<SQL>) {
-    chomp;
-    $sql = $sql . $_;
-  }
-  close SQL;
-  # get SQL source from file
+  eval {
+    # get SQL source from file
+    open(SQL,"<$sqlSource") or die "Error opening SQL $sqlSource";
+    while(<SQL>) {
+      chomp;
+      $sql .= $_;
+    }
+    close SQL;
+  };
+    if ($@) {
+      print STDERR $@;
+      exit 1;
+    }
+
 }
 else {
   if ($initdb) {

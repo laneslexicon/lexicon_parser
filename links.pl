@@ -41,11 +41,64 @@ my $updateNode;
 my $currentWord;
 my $currentNodeId;
 my $headwords=0;
+my $updateLinks=0;
 my $noUpdate=0;
 my $showXml=0;
 my $showHelp=0;
 binmode STDERR, ":utf8";
 binmode STDOUT, ":utf8";
+############################################################
+#  create subdirectory of the given base directory
+#
+#  if no base is given, use the system temporary directory
+# if unable to create subdirectory of the given base
+# create subdirec
+#
+###########################################################
+sub getLogDirectory {
+  my $base = shift;
+  my $id = shift;
+
+  # check the base exists or can be created
+  if (! $base ) {
+      $base = dirname(tempdir());
+  }
+  if ( -d $base ) {
+
+  }
+  else {
+    if (! mkdir $base) {
+      $base = dirname(tempdir());
+    }
+  }
+  # try to create the subdirectory
+  my $logdir = catfile($base,$id);
+  if (-d $logdir) {
+    return $logdir;
+  }
+  if ( mkdir $logdir) {
+    return $logdir;
+  }
+
+  # couldn't create, so try create as subdirectory of current
+  $logdir = catfile(getcwd(),$id);
+  if (-d $logdir ) {
+    return $logdir;
+  }
+  elsif ( mkdir $logdir) {
+    return $logdir;
+  }
+  # couldn't do that either, so use the temporary directory
+  # or the current working directory ignore the $dbid
+  $logdir = catfile(dirname(tempdir()),$id);
+  if (-d $logdir ) {
+    return $logdir;
+  }
+  elsif ( mkdir $logdir) {
+    return $logdir;
+  }
+  return getcwd();
+}
 ######################################################
 #
 # this block of code reads through the head words
@@ -86,15 +139,12 @@ sub find_headwords {
   my %b;
   my @bletters;
   my $bletter;
-  my $dbname = shift;
   my $writeCount = 0;
   my $commitCount = 500;
   my $updateCount = 0;
-  openDb($dbname);
-  if (! $dbh) {
-    print STDERR "Failed to open db $dbname\n";
-    return;
-  }
+
+
+  print $headfh sprintf "Index,Node,Root,Broot,Head,BHead\n";
   my $sth = $dbh->prepare("select id,root,broot,word,bword,nodeId from entry");
   my $update = $dbh->prepare("update entry set headword = ? where id = ?");
   if ( $update->err )    {
@@ -189,18 +239,21 @@ sub find_headwords {
         $word_index = find_word($r,$head);
       }
       if ($word_index != -1) {
-        $update->bind_param(1,$words[$word_index]);
-#        print STDERR "Updating with:" . $words[$word_index] . "\n";
-        $update->bind_param(2,$rec->[0]);
-        $update->execute();
-        if ( $update->err )    {
-          die "ERROR return code:" . $update->err . " error msg: " . $update->errstr . "\n";
-        }
-        $writeCount++;
-        $updateCount++;
-        if ($writeCount > $commitCount) {
-          $dbh->commit;
-          $writeCount = 0;
+        if (! $noUpdate) {
+          $update->bind_param(1,$words[$word_index]);
+          #        print STDERR "Updating with:" . $words[$word_index] . "\n";
+
+          $update->bind_param(2,$rec->[0]);
+          $update->execute();
+          if ( $update->err ) {
+            die "ERROR return code:" . $update->err . " error msg: " . $update->errstr . "\n";
+          }
+          $writeCount++;
+          $updateCount++;
+          if ($writeCount > $commitCount) {
+            $dbh->commit;
+            $writeCount = 0;
+          }
         }
       }
       print $headfh sprintf "%d[%s][%s][%s][%s][%s]\n",$word_index,$rec->[5],$root,$rec->[2],$head,$rec->[4];
@@ -719,8 +772,9 @@ GetOptions(
            "node=s" => \$nodeName,
            "log-dir=s" => \$logDir,
            "verbose" => \$verbose,
+           "links" => \$updateLinks,
            "heads" => \$headwords,
-           "no-update" => \$noUpdate,
+           "dry-run" => \$noUpdate,
            "with-xml" => \$showXml,
            "help" => \$showHelp
           );
@@ -728,30 +782,50 @@ if ($showHelp) {
   print STDERR "--db <name of sqlite file>   use the supplied database\n";
   print STDERR "--node <node number>         do only the given node or comma separated nodes\n";
   print STDERR "--log-dir <directory>        write log file to given directory, defaults to current\n";
-  print STDERR "--no-update                  do not update the database\n";
+  print STDERR "--dry-run                    do not update the database\n";
   print STDERR "--with-xml                   print the before/after XML to STDERR\n";
   print STDERR "--heads                      Update the headword entry\n";
+  print STDERR "--links                      Update the links\n";
   print STDERR "--help                       print this\n";
   exit 1;
 
 }
+if (! $dbName ) {
+  print STDERR "No database name given,exiting\n";
+  exit 0;
+}
+
+openDb($dbName);
+if (! $dbh ) {
+  print STDERR "Error opening DB $dbName\n";
+  exit 0;
+}
 if (! $logDir ) {
   $logDir = ".";
+}
+else {
+  my $sth = $dbh->prepare("select dbid from lexicon");
+  $sth->execute;
+  my $rec = $sth->fetchrow_hashref;
+  if ($rec) {
+    $logDir = getLogDirectory($logDir,$rec->{dbid});
+  }
+  else {
+    print STDERR "Could not read DBID\n";
+  }
 }
 
 if ($headwords) {
   my $logfile = File::Spec->catfile($logDir,"heads.log");
   open($headfh,">:encoding(UTF8)",$logfile) or die "Cannot open logfile $@\n";
   find_headwords($dbName);
-  exit 0;
+}
+if (! $updateLinks ) {
+  exit 1;
 }
 my $linklog = File::Spec->catfile($logDir,"link.log");
 open($logfh,">:encoding(UTF8)",$linklog) or die "Cannot open logfile $@\n";
-if (! $dbName ) {
-  print STDERR "No database name given,exiting\n";
-  exit 0;
-}
-openDb($dbName);
+
 $lookupsth = $dbh->prepare("select id,root,word,bword,nodeId,page from entry where word = ? and datasource = 1");
 $baresth = $dbh->prepare("select id,root,word,bword,bareword,nodeId,page from entry where bareword = ? and datasource = 1");
 $headsth = $dbh->prepare("select id,root,word,bword,bareword,nodeId,headword,page from entry where headword = ? and datasource = 1");
