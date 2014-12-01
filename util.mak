@@ -53,13 +53,18 @@ onefile:
 lexicon:
 	./version.sh
 	perl lane.pl --db lexicon.sqlite --initdb --overwrite --dir .../xml --no-context --verbose --logbase lexicon --sql ./lexicon_schema.sql
-	#
-	# this one does everything, using the -do-all option instead of doing it step by step (like in 'full' below)
-	#
+#
+#
+# this one does everything, using the -do-all option instead of doing it step by step (like in 'full' below)
+#
+#
 build:
 	./version.sh
 	perl lane.pl --db lexicon.sqlite --initdb --overwrite -dir ../xml --no-context --verbose --log-dir ../logs --sql ./lexicon_schema.sql --do-all --show-progress 
+	perl links.pl --db lexicon.sqlite --log-dir ../logs --heads
+	perl links.pl --db lexicon.sqlite --log-dir ../logs --links
 	perl reports.pl --db lexicon.sqlite --log-dir ../logs --dbid `cat LASTRUNID` --dir ../xml 
+	perl reports.pl --dbid `cat LASTRUNID` --headwords --unmatched --log-dir ../logs
 #
 #
 #      run this to get a complete database
@@ -71,7 +76,8 @@ full:
 	cp lexicon.sqlite /tmp
 	perl lane.pl --db lexicon.sqlite --xrefs
 	perl lane.pl --db lexicon.sqlite --diacritics
-	perl lane.pl --db lexicon.sqlite --set-links
+	perl links.pl --db lexicon.sqlite --log-dir ../logs --links
+	perl reports.pl --db lexicon.sqlite --log-dir ../logs --dbid `cat LASTRUNID` --dir ../xml 
 buck:
 	perl lane.pl --db buck.sqlite --initdb --overwrite --no-convert --no-context  --dir ./xml_originals --verbose --logbase buck
 	cp buck.sqlite /tmp
