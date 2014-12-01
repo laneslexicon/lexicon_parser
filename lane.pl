@@ -1987,6 +1987,10 @@ sub setLinksForNode {
   }
 }
 #############################################################
+#
+# NOTE: All links and headword code has been moved to
+# a separate file (links.pl)
+#
 # can optionally just do links for letter supplied as param
 # otherwise it will do all
 ############################################################
