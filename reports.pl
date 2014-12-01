@@ -17,15 +17,17 @@ my $logDir;
 my $dbname;
 my $dbid;
 my $xmlDir;
+my $doHeads=0;
+my $doSummary=0;
+my $doConversionErrors=0;
+my $doLongRoots=0;
+my $doWrongLetter=0;
+my $doHeadWords=0;
+my $doDoubleQuestions=0;
+my $doAll=0;
+my $unmatchedOnly=0;
 binmode STDERR, ":encoding(UTF-8)";
 binmode STDOUT, ":encoding(UTF-8)";
-GetOptions (
-  "log-dir=s" => \$logDir,
-  "dbid=s" => \$dbid,
-  "db=s" => \$dbname,
-  "dir=s" => \$xmlDir)
-  or die("Error in command line arguments");
-
 sub convertString {
   my $t = shift;
   my $s = $t;
@@ -660,6 +662,104 @@ $id,            $letter,        $word, $bword ,                  $vol,$page,$xml
   $csv->close;
   $tex->close;
 }
+sub tex_escape {
+  my $word = shift;
+
+  my @ec = split //,$word;
+  my $o = "";
+
+  foreach my $c (@ec) {
+    if ($c =~ /[\\{}_^#&\$%~]/) {
+      $o .= "\\";
+    }
+    $o .= $c;
+  }
+  return $o;
+}
+sub headwords {
+  my $dbid = shift;
+
+  my $tex;
+  my $csv;
+  my $fh;
+
+
+  my $filename = catfile($logDir,"heads.log");
+  if ( ! -e $filename ) {
+    print STDERR "Cannot find required log file : $filename\n";
+    return;
+  }
+  open($fh,"<:encoding(UTF8)",$filename);
+  open($tex,">:encoding(UTF8)",catfile($logDir,"heads.tex"));
+  open($csv,">:encoding(UTF8)",catfile($logDir,"heads.csv"));
+  print $tex get_tex_header_headwords();
+  print $tex "\\hline\n";
+  print $tex "Node & Root & Headword & Buck root &  Index & Buck Head \\\\\n";
+  print $csv "Node,Root,Headword,Buck root,Index,Buck Head\n";
+  print $tex "\\hline\n";
+  print $tex "\\endhead\n";
+
+  my $linecount = 0;
+  my @ar;
+  my $show;
+  while (<$fh>) {
+    $show = 1;
+    @ar = split /\|/,$_;
+    if ($#ar == 5){
+      if ($unmatchedOnly && ($ar[0] != -1)) {
+        $show = 0;
+      }
+      if ($show) {
+        print $tex sprintf "%s & \\textarabic{%s} & \\textarabic{%s} & %s  & %d & %s",
+          $ar[1],$ar[2],$ar[4],tex_escape($ar[3]),$ar[0],tex_escape($ar[5]);
+        print $tex " \\\\\n";
+        print $csv sprintf "%s,%s,%s,%s,%d,%s\n",
+          $ar[1],$ar[2],$ar[4],$ar[3],$ar[0],$ar[5];
+      }
+    }
+  }
+  print $tex "\n";
+  print $tex get_tex_footer();
+  $fh->close;
+  $tex->close;
+  $csv->close;
+}
+sub get_tex_header_headwords {
+  my $t = <<'EOT';
+\documentclass{book}
+\usepackage{array}
+\usepackage{longtable}
+\usepackage{setspace}
+\usepackage{fontspec}
+\usepackage{polyglossia}
+\usepackage{lastpage}
+\usepackage{fancyhdr}
+\usepackage[hmargin=1cm,vmargin=3cm]{geometry}
+\setmainlanguage{english}
+\setotherlanguages{arabic,greek}
+\newfontfamily\arabicfont[Script=Arabic,Scale=0.9]{Droid Arabic Naskh}
+%\newfontfamily\arabicfont[Script=Arabic,Scale=2.0]{Amiri}
+%\newfontfamily\greekfont[Script=Greek,Scale=1.1]{Galatia SIL}
+\newfontfamily\englishfont[Script=Latin,Scale=0.8]{Droid Sans}
+
+\pagestyle{fancy}
+\fancyhf{}
+\lhead{Head Words}
+\rhead{}
+\lfoot{\today}
+\rfoot{Page \thepage/\pageref{LastPage}}
+\begin{document}
+\setlength{\tabcolsep}{1mm}
+\setlength{\parindent}{0mm}
+%\begin{center}
+\begin{longtable}{cccccc}
+EOT
+  return $t;
+}
+
+
+
+
 sub get_tex_header {
   my $t = <<'EOT';
 \documentclass{book}
@@ -673,9 +773,9 @@ sub get_tex_header {
 \usepackage[hmargin=1cm,vmargin=3cm]{geometry}
 \setmainlanguage{english}
 \setotherlanguages{arabic,greek}
-%\newfontfamilyarabicfont[Script=Arabic,Scale=1.5]{Droid Arabic Naskh}
-\newfontfamily\arabicfont[Script=Arabic,Scale=2.0]{Amiri}
-\newfontfamily\greekfont[Script=Greek,Scale=1.1]{Galatia SIL}
+\newfontfamily\arabicfont[Script=Arabic,Scale=1.5]{Droid Arabic Naskh}
+%\newfontfamily\arabicfont[Script=Arabic,Scale=2.0]{Amiri}
+%\newfontfamily\greekfont[Script=Greek,Scale=1.1]{Galatia SIL}
 \newfontfamily\englishfont[Script=Latin,Scale=1.1]{Droid Sans}
 
 \pagestyle{fancy}
@@ -702,15 +802,45 @@ sub get_tex_footer {
 EOT
   return $t;
 }
+###########################################################################
+# main
+#
+# eg perl links.pl --db vanilla.sqlite --node n9017
+##########################################################################
+GetOptions (
+            "log-dir=s" => \$logDir,
+            "dbid=s" => \$dbid,
+            "db=s" => \$dbname,
+            "dir=s" => \$xmlDir,
+            "summary" => \$doSummary,
+            "conv" => \$doConversionErrors,
+            "long-roots" => \$doLongRoots,
+            "wrong-letter" => \$doWrongLetter,
+            "headwords" => \$doHeadWords,
+            "unmatched" => \$unmatchedOnly,
+            "questionmarks" => \$doDoubleQuestions,
+            "all" => \$doAll
+           )
+  or die("Error in command line arguments");
+
 $logDir = getLogDirectory($logDir,$dbid);
 if (! $dbid ) {
   print STDERR "No run ID specified, exiting\n";
   exit 1;
 }
-if ($xmlDir) {
+if ($doAll) {
+ $doSummary=1;
+ $doConversionErrors=1;
+ $doLongRoots=1;
+ $doWrongLetter=1;
+ $doHeadWords=1;
+ $doDoubleQuestions=1;
+}
+if ($doDoubleQuestions && $xmlDir) {
   check_double_questions($xmlDir,$dbname);
 }
-summaryStats($logDir,$dbid);
-convErrors($logDir,$dbid);
-wrong_letter($dbname,$dbid);
-check_long_roots($dbname,$dbid);
+summaryStats($logDir,$dbid)     unless ! $doSummary;
+convErrors($logDir,$dbid)       unless ! $doConversionErrors;
+wrong_letter($dbname,$dbid)     unless ! $doWrongLetter;
+check_long_roots($dbname,$dbid) unless ! $doLongRoots;
+headwords($dbid)               unless ! $doHeadWords;
