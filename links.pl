@@ -45,6 +45,9 @@ my $updateLinks=0;
 my $noUpdate=0;
 my $showXml=0;
 my $showHelp=0;
+my $characterCoverage=0;
+my $headFixesFile = "headword_fixes.csv";
+my %headwordFixes;
 binmode STDERR, ":utf8";
 binmode STDOUT, ":utf8";
 ############################################################
@@ -109,6 +112,20 @@ sub getLogDirectory {
 # but that's not relevant)
 #
 ######################################################
+sub load_manual_fixes {
+  my $filename = shift;
+  my $fh;
+  my @w;
+
+  return unless -e $filename;
+  open($fh,"<:encoding(UTF8)",$filename);
+  while(<$fh>) {
+    @w = split /,/,$_;
+    if ($#w == 5) {
+      $headwordFixes{$w[0]} = $w[4];
+    }
+  }
+}
 sub build_rx {
   my $word = shift;
   my @letters = split '',$word;
@@ -119,6 +136,14 @@ sub build_rx {
   }
   return $rx;
 
+}
+sub check_manual_fixup {
+  my $node = shift;
+
+  if ( ! exists $headwordFixes{$node} ) {
+    return -1;
+  }
+  return $headwordFixes{$node};
 }
 sub find_word {
   my $root = shift;
@@ -161,19 +186,26 @@ sub find_headwords {
   my $wy = 0;
   my $root;
   my $head;
+  my $node;
   my $rec;
   $sth->execute();
   while ($rec = $sth->fetchrow_arrayref) {
     #  my ($id,$root,$broot,$word,$bword,$nodeid) = split '|', $_;
-    @bletters = split '',$rec->[4];
-    for (my $i=0;$i < scalar(@bletters);$i++) {
-      $bletter = $bletters[$i];
-      my $c = -1;
-      if ( exists $b{$bletter} ) {
-        $c = $b{$bletter};
+    #
+    # This is the character coverage
+    #
+    if ($characterCoverage) {
+      @bletters = split '',$rec->[4];
+      for (my $i=0;$i < scalar(@bletters);$i++) {
+        $bletter = $bletters[$i];
+        my $c = -1;
+        if ( exists $b{$bletter} ) {
+          $c = $b{$bletter};
+        }
+        $b{$bletter} = $c + 1;
       }
-      $b{$bletter} = $c + 1;
     }
+    $node = $rec->[5];
     $head = decode("UTF-8",$rec->[3]);
     my @words = split /\s+/,$head;
     if (scalar(@words) > 1) {
@@ -238,6 +270,9 @@ sub find_headwords {
         $r =~ s/^.//;
         $word_index = find_word($r,$head);
       }
+      if ($word_index == -1) {
+        $word_index = check_manual_fixup($node);
+      }
       if ($word_index != -1) {
         if (! $noUpdate) {
           $update->bind_param(1,$words[$word_index]);
@@ -256,7 +291,8 @@ sub find_headwords {
           }
         }
       }
-      print $headfh sprintf "%d[%s][%s][%s][%s][%s]\n",$word_index,$rec->[5],$root,$rec->[2],$head,$rec->[4];
+      print $headfh sprintf "%d|%s|%s|%s|%s|%s\n",$word_index,$rec->[5],$root,$rec->[2],$head,$rec->[4];
+#      print $headfh sprintf "%d[%s][%s][%s][%s][%s]\n",$word_index,$rec->[5],$root,$rec->[2],$head,$rec->[4];
       #    }
       if ($word_index != -1) {
         $match_count++;
@@ -272,13 +308,14 @@ sub find_headwords {
   if ($writeCount > 0) {
     $dbh->commit;
   }
-  print STDERR sprintf "Candidates %d, matches %d, updates %d\n",$candidate_count,$match_count,$updateCount;
-#    print sort keys %b;
-#    print "\n";
-#    foreach $bletter (sort keys %b) {
-#      print sprintf "[%s][%04x]\t%d\n",$bletter,ord($bletter),$b{$bletter};
-#    }
-#  }
+    print STDERR sprintf "Candidates %d, matches %d, updates %d\n",$candidate_count,$match_count,$updateCount;
+  if ($characterCoverage) {
+    print STDERR sort keys %b;
+    print STDERR "\n";
+    foreach $bletter (sort keys %b) {
+      print STDERR sprintf "[%s][%04x]\t%d\n",$bletter,ord($bletter),$b{$bletter};
+    }
+  }
 }
 ###############################################################
 #
@@ -772,20 +809,24 @@ GetOptions(
            "node=s" => \$nodeName,
            "log-dir=s" => \$logDir,
            "verbose" => \$verbose,
+           "fixes=s" => \$headFixesFile,
            "links" => \$updateLinks,
            "heads" => \$headwords,
            "dry-run" => \$noUpdate,
            "with-xml" => \$showXml,
+           "coverage" => \$characterCoverage,
            "help" => \$showHelp
           );
 if ($showHelp) {
   print STDERR "--db <name of sqlite file>   use the supplied database\n";
-  print STDERR "--node <node number>         do only the given node or comma separated nodes\n";
+  print STDERR "--node <node number>         do links for only the given node or comma separated nodes\n";
   print STDERR "--log-dir <directory>        write log file to given directory, defaults to current\n";
   print STDERR "--dry-run                    do not update the database\n";
   print STDERR "--with-xml                   print the before/after XML to STDERR\n";
+  print STDERR "--fixes <filename>           Name of file with headword manual fixes (default: headword_fixes.csv)\n";
   print STDERR "--heads                      Update the headword entry\n";
   print STDERR "--links                      Update the links\n";
+  print STDERR "--coverage                   Report Buckwalter character counts (as part of headwords)\n";
   print STDERR "--help                       print this\n";
   exit 1;
 
@@ -816,12 +857,13 @@ else {
 }
 
 if ($headwords) {
+  load_manual_fixes($headFixesFile);
   my $logfile = File::Spec->catfile($logDir,"heads.log");
   open($headfh,">:encoding(UTF8)",$logfile) or die "Cannot open logfile $@\n";
   find_headwords($dbName);
 }
 if (! $updateLinks ) {
-  exit 1;
+  exit 0;
 }
 my $linklog = File::Spec->catfile($logDir,"link.log");
 open($logfh,">:encoding(UTF8)",$linklog) or die "Cannot open logfile $@\n";
