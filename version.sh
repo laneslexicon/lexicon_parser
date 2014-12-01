@@ -1,4 +1,4 @@
-#!bash
+#!/usr/local/bin/bash
 if [ ! -e 'lane.pl' ]; then
     echo "This script must run from same directory as lane.pl"
     exit 1;
