@@ -64,38 +64,6 @@ my $showProgress = 0;
 my %tags;
 #
 #
-GetOptions (
-            "do-all" => \$doAll,
-            "no-logs" => \$noLogging,
-            "scan-arrows" => \$arrowMode,
-            "scan-tags" => \$tagsMode,
-            "set-links" => \$linksMode,
-            "letter=s" => \$linkletter,
-            "log-dir=s" => \$logDir,
-            "show-progress" => \$showProgress,
-            "test=s" => \$doTest,
-            "no-context"  => \$suppressContext,
-            "suppress-fixups" => \$suppressFixups,
-            "dry-run"   => \$dryRun,
-            "overwrite" => \$overwrite,
-            "no-convert" =>  \$skipConvert, # do not convert nodes with lang="ar"
-            "verbose" => \$verbose,
-            "debug" => \$debug,
-            "commit=i" => \$commitCount, # db.commit after write count
-            "margin=i" => \$textMargin, # before & after text length to include in conversion error
-            "xml=s" => \$xmlFile,       # file to parse
-            "dir=s" => \$parseDir, # directory with xml files to be parsed
-            "initdb" => \$initdb,  # delete existing records
-            "sql=s"  => \$sqlSource, # SQL used to init db
-            "db=s" => \$dbname,
-            "xrefs" => \$xrefMode,
-            "diacritics" => \$diacriticsMode,
-            "with-perseus" => \$withPerseus,
-            "supplement-itypes" => \$supplementItypeMode,
-            "test-conversion=s" => \$testConversionMode
-           )
-  or die("Error in command line arguments\n");
-
 
 #
 # control totals
@@ -2512,6 +2480,38 @@ sub postParse() {
 # MAIN
 #
 ############################################################
+GetOptions (
+            "do-all" => \$doAll,
+            "no-logs" => \$noLogging,
+            "scan-arrows" => \$arrowMode,
+            "scan-tags" => \$tagsMode,
+#            "set-links" => \$linksMode,
+            "letter=s" => \$linkletter,
+            "log-dir=s" => \$logDir,
+            "show-progress" => \$showProgress,
+            "test=s" => \$doTest,
+            "no-context"  => \$suppressContext,
+            "suppress-fixups" => \$suppressFixups,
+            "dry-run"   => \$dryRun,
+            "overwrite" => \$overwrite,
+            "no-convert" =>  \$skipConvert, # do not convert nodes with lang="ar"
+            "verbose" => \$verbose,
+            "debug" => \$debug,
+            "commit=i" => \$commitCount, # db.commit after write count
+            "margin=i" => \$textMargin, # before & after text length to include in conversion error
+            "xml=s" => \$xmlFile,       # file to parse
+            "dir=s" => \$parseDir, # directory with xml files to be parsed
+            "initdb" => \$initdb,  # delete existing records
+            "sql=s"  => \$sqlSource, # SQL used to init db
+            "db=s" => \$dbname,
+            "xrefs" => \$xrefMode,
+            "diacritics" => \$diacriticsMode,
+            "with-perseus" => \$withPerseus,
+            "supplement-itypes" => \$supplementItypeMode,
+            "test-conversion=s" => \$testConversionMode
+           )
+  or die("Error in command line arguments\n");
+
 if ($testConversionMode) {
   $noLogging = 1;
   print $testConversionMode . "\n";
@@ -2533,10 +2533,10 @@ if ($sqlSource) {
     }
     close SQL;
   };
-    if ($@) {
-      print STDERR $@;
-      exit 1;
-    }
+  if ($@) {
+    print STDERR "Error reading SQL source: $@\n";
+    exit 1;
+  }
 
 }
 else {
