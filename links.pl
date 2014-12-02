@@ -274,30 +274,27 @@ sub find_headwords {
         $word_index = check_manual_fixup($node);
       }
       if ($word_index != -1) {
-        if (! $noUpdate) {
-          $update->bind_param(1,$words[$word_index]);
-          #        print STDERR "Updating with:" . $words[$word_index] . "\n";
 
-          $update->bind_param(2,$rec->[0]);
-          $update->execute();
-          if ( $update->err ) {
-            die "ERROR return code:" . $update->err . " error msg: " . $update->errstr . "\n";
-          }
-          $writeCount++;
-          $updateCount++;
-          if ($writeCount > $commitCount) {
-            $dbh->commit;
-            $writeCount = 0;
-          }
-        }
-      }
-      print $headfh sprintf "%d|%s|%s|%s|%s|%s\n",$word_index,$rec->[5],$root,$rec->[2],$head,$rec->[4];
-#      print $headfh sprintf "%d[%s][%s][%s][%s][%s]\n",$word_index,$rec->[5],$root,$rec->[2],$head,$rec->[4];
+        print $headfh sprintf "%d|%s|%s|%s|%s|%s\n",$word_index,$rec->[5],$root,$rec->[2],$head,$rec->[4];
+        #      print $headfh sprintf "%d[%s][%s][%s][%s][%s]\n",$word_index,$rec->[5],$root,$rec->[2],$head,$rec->[4];
       #    }
-      if ($word_index != -1) {
+        $head = $words[$word_index];
         $match_count++;
       }
-      #print $rec->[4] . "\n";
+    }
+    if (! $noUpdate) {
+      $update->bind_param(1,$head);
+      $update->bind_param(2,$rec->[0]);
+      $update->execute();
+      if ( $update->err ) {
+        die "ERROR return code:" . $update->err . " error msg: " . $update->errstr . "\n";
+      }
+      $writeCount++;
+      $updateCount++;
+      if ($writeCount > $commitCount) {
+        $dbh->commit;
+        $writeCount = 0;
+      }
     }
     $i++;
     #  if ($i > $max) {
