@@ -681,6 +681,9 @@ sub writeEntry {
   $entrysth->bind_param(10,$currentPage);
   $entrysth->bind_param(11,$nodenum);
   $entrysth->bind_param(12,$perseusxml);
+  # set headword to word. It will be fixed when
+  # links.pl is run
+  $entrysth->bind_param(13,$word);
   if ($entrysth->execute()) {
     $entryDbCount++;
     $writeCount++;
@@ -2446,7 +2449,7 @@ sub prepareSql {
   #
   eval {
     $xrefsth = $dbh->prepare("insert into xref (datasource,word,bword,node,page,type) values (1,?,?,?,?,?)");
-    $entrysth = $dbh->prepare("insert into entry (datasource,root,broot,word,itype,nodeId,bword,xml,supplement,file,page,nodenum,perseusxml) values (1,?,?,?,?,?,?,?,?,?,?,?,?)");
+    $entrysth = $dbh->prepare("insert into entry (datasource,root,broot,word,itype,nodeId,bword,xml,supplement,file,page,nodenum,perseusxml,headword) values (1,?,?,?,?,?,?,?,?,?,?,?,?,?)");
     $rootsth = $dbh->prepare("insert into root (datasource,word,bword,letter,bletter,supplement,quasi,alternates,page,xml) values (1,?,?,?,?,?,?,?,?,?)");
     $alternatesth = $dbh->prepare("insert into alternate (datasource,word,bword,letter,bletter,supplement,quasi,alternate) values (1,?,?,?,?,?,?,?)");
     # these are for the set-links searches
