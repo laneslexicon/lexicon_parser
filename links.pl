@@ -775,8 +775,14 @@ sub setLinks {
         }
       }
     }
+
     if (! $noUpdate && $updateRequired) {
-        my $xml = decode("UTF-8",$doc->toString);
+      my $xml = decode("UTF-8",$doc->toString);
+      # toString is returning <?xml version="1.0"?>
+      # so strip this out.
+      # There's probably some setting that stops this
+      # but I haven't found it.
+        $xml =~ s/^<?.+?>//;
         $updatesth->bind_param(1,$xml);
         $updatesth->bind_param(2,$id);
         $updatesth->execute();
