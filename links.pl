@@ -23,6 +23,7 @@ my $logDir = "";
 my $verbose=0;
 my $dbh;
 my $lookupsth;
+my $itypesth;
 my $baresth;
 my $headsth;
 my $linkCount=0;
@@ -41,6 +42,7 @@ my $updateNode;
 my $currentWord;
 my $currentNodeId;
 my $headwords=0;
+my $verbForms=0;
 my $updateLinks=0;
 my $noUpdate=0;
 my $showXml=0;
@@ -606,13 +608,74 @@ sub setLinksOld {
   }
   print STDERR "Links count $arrowsCount, unresolved : $unresolvedArrows\n";
 }
+sub gen_verbs {
+  my $root = shift;
+
+  if (length($root) != 3) {
+    return;
+  }
+  my $c1 = substr $root, 0,1;
+  my $c2 = substr $root, 1,1;
+  my $c3 = substr $root, 2,1;
+
+  my @forms;
+  my $sukun = chr(0x652);
+  my $shadda = chr(0x651);
+  my $alef = chr(0x627);
+  my $teh = chr(0x62a);
+  my $noon = chr(0x646);
+  my $seen = chr(0x633);
+
+  push @forms,$root;
+  push @forms, sprintf "%s%s%s%s",$c1,$c2,$shadda,$c3;                # II
+  push @forms, sprintf "%s%s%s%s",$c1,$c2,$alef,$c3;                  # III
+  push @forms, sprintf "%s%s%s%s%s",$alef,$c1,$sukun,$c2,$c3;         # IV
+  push @forms, sprintf "%s%s%s%s%s",$teh,$c1,$c2,$shadda,$c3;         # V
+  push @forms, sprintf "%s%s%s%s%s",$teh,$c1,$alef,$c2,$c3;           # VI
+  push @forms, sprintf "%s%s%s%s%s%s",$alef,$noon,$sukun,$c1,$c2,$c3;  # VII
+  push @forms, sprintf "%s%s%s%s%s%s",$alef,$c1,$sukun,$teh,$c2,$c3;  # VIII
+  push @forms, sprintf "%s%s%s%s%s%s",$alef,$c1,$sukun,$c2,$c3,$shadda;  # IX
+  push @forms, sprintf "%s%s%s%s%s%s",$alef,$seen,$teh,$c1,$c2,$c3;  # X
+
+#  print sprintf "[%s][%s][%s]\n",$c1,$c2,$c3;
+#  print join "\n",@forms;
+  return @forms;
+
+}
+#########################################
+# tries to find a matching verb form
+#########################################
+sub check_verbforms {
+  my $root = shift;
+  my $word = shift;
+
+  my @forms = gen_verbs($root);
+
+  if (scalar(@forms) == 0) {
+    return -1;
+  }
+
+  # remove all fatha,damma,kasra etc
+  $word =~ s/[\x64b-\x650]//g;
+
+  my $ix = 0;
+  foreach my $form (@forms) {
+    if ($word =~ /$form/) {
+      return $ix;
+    }
+    $ix++;
+  }
+  return -1;
+}
 ################################################
 # link match types:
 #  1  : word
 #  2  : headword
 #  3  : bareword
+#  4  : verb form
 ###############################################
 sub lookupWord {
+  my $root = shift;
   my $word = shift;
 
   $lookupsth->bind_param(1,$word);
@@ -635,18 +698,24 @@ sub lookupWord {
       return ($rec->{id},$rec->{root},$rec->{nodeId},$rec->{word},$rec->{page},3);
     }
   }
-  #
-  # don't need this, the bareword should catch them
-  #
-  $lookupsth->bind_param(1,$word . chr(0x64c));
-  $lookupsth->execute();
-  $rec = $lookupsth->fetchrow_hashref;
-  if ($rec) {
-    return ($rec->{id},$rec->{root},$rec->{nodeId},$rec->{word},$rec->{page},4);
+  my $itype = check_verbforms($root,$word);
+  if ($itype != -1) {
+    $itypesth->bind_param(1,$root);
+    $itypesth->bind_param(2,$itype);
+    $itypesth->execute();
+    $rec = $itypesth->fetchrow_hashref;
+    if ($rec) {
+      return ($rec->{id},$rec->{root},$rec->{nodeId},$rec->{word},$rec->{page},4);
+    }
   }
   return ();
 }
+###############################################################
+# calls lookupWord for each word in the entry
+# returns array of matches
+###############################################################
 sub findLink {
+  my $root = shift;
   my $text = shift;
   my @words;
   $text =~ s/^\s+//g;
@@ -662,7 +731,7 @@ sub findLink {
   my ($linkToId,$linkToRoot,$linkToNode,$linkToWord,$linkType,$linkToPage);
   my $wordMatched;
   foreach my $linkword (@words) {
-    ($linkToId,$linkToRoot,$linkToNode,$linkToWord,$linkToPage,$linkType) = lookupWord($linkword);
+    ($linkToId,$linkToRoot,$linkToNode,$linkToWord,$linkToPage,$linkType) = lookupWord($root,$linkword);
     if ($linkToNode) {
       push @matches,{ node => $linkToNode,
                       id => $linkToId,
@@ -676,6 +745,12 @@ sub findLink {
 #  print Data::Dumper->Dump([\@matches],[qw(matches)]);
   return @matches;
 }
+##################################################################
+#
+# top level routine for setting links
+#
+##################################################################
+
 sub setLinks {
   my $node = shift;
   my $parser = XML::LibXML->new;
@@ -727,7 +802,7 @@ sub setLinks {
         }
         $arrowsCount++;
         $linktext = $node->textContent;
-        my @matches = findLink($linktext);
+        my @matches = findLink(decode("UTF-8",$root),$linktext);
         if ((scalar @matches) > 1) {
           $multiMatches++;
         }
@@ -805,7 +880,12 @@ sub setLinks {
 ###########################################################################
 # main
 #
-# eg perl links.pl --db vanilla.sqlite --node n9017
+# eg to test the links for a particular node:
+#
+# perl links.pl --db vanilla.sqlite --links --node n9017
+#
+# (Will create links.log in current directory.)
+#
 ##########################################################################
 GetOptions(
            "db=s" => \$dbName,
@@ -813,6 +893,7 @@ GetOptions(
            "log-dir=s" => \$logDir,
            "verbose" => \$verbose,
            "fixes=s" => \$headFixesFile,
+           "forms=s" => \$verbForms,
            "links" => \$updateLinks,
            "heads" => \$headwords,
            "dry-run" => \$noUpdate,
@@ -865,6 +946,14 @@ if ($headwords) {
   open($headfh,">:encoding(UTF8)",$logfile) or die "Cannot open logfile $@\n";
   find_headwords($dbName);
 }
+#
+# test code
+#
+if ($verbForms) {
+  my $root = "كتب";
+  my $word = "تكاتبا";
+  check_verbforms($root,$word);
+}
 if (! $updateLinks ) {
   exit 0;
 }
@@ -872,6 +961,7 @@ my $linklog = File::Spec->catfile($logDir,"link.log");
 open($logfh,">:encoding(UTF8)",$linklog) or die "Cannot open logfile $@\n";
 
 $lookupsth = $dbh->prepare("select id,root,word,bword,nodeId,page from entry where word = ? and datasource = 1");
+$itypesth = $dbh->prepare("select id,root,word,bword,nodeId,page from entry where root = ? and itype = ? and datasource = 1");
 $baresth = $dbh->prepare("select id,root,word,bword,bareword,nodeId,page from entry where bareword = ? and datasource = 1");
 $headsth = $dbh->prepare("select id,root,word,bword,bareword,nodeId,headword,page from entry where headword = ? and datasource = 1");
 my @nodes;
