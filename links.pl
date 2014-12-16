@@ -26,6 +26,7 @@ my $lookupsth;
 my $itypesth;
 my $baresth;
 my $headsth;
+my $linksth;
 my $linkCount=0;
 my $arrowsCount=0;
 my $resolvedArrows=0;
@@ -785,13 +786,19 @@ sub setLinks {
     my $nodes = $doc->getElementsByTagName("orth");
     my $n = $nodes->size();
     my $printHeader=0;
+    my $linkId;
     $updateRequired = 0;
     $currentRecordId = $id;
     for (my $i = 0; $i < $n; $i++) {
       $#links = -1;             # clear old links
+      $linkId = -1;
       my $node = $nodes->item($i);
       $attrnode = $node->getAttributeNode("type");
       if ($attrnode && ($attrnode->value eq "arrow")) {
+        $attrnode = $node->getAttributeNode("linkId");
+        if ($attrnode) {
+          $linkId = $attrnode->value("linkId");
+        }
         # show node name
         if ($verbose && !$printHeader ) {
           print STDERR $nodeId . "\n";
@@ -838,15 +845,23 @@ sub setLinks {
             $node->setAttribute("matched",$m->{matchedword});
             $node->setAttribute("linktype",$m->{type});
             $updateRequired = 1;
+            if (! $noUpdate && ($linkId != -1)) {
+              # update links table
+              updateLinkRecord($linkId,$m,$linktext);
+            }
             if ($showXml) {
               print STDERR $node->toString . "\n\n";
             }
             $resolvedArrows++;
-
+          }
+          else {
+            print STDERR "We should not be here\n";
           }
         }
         else {
-          print $logfh sprintf "0,%s,%s\n",$linktext,$nodeId;
+            $node->setAttribute("nogo",$linkId);
+            $updateRequired = 1;
+            print $logfh sprintf "0,%s,%s\n",$linktext,$nodeId;
         }
       }
     }
@@ -876,6 +891,23 @@ sub setLinks {
   }
   print STDERR sprintf "Links count %d, resolved : %d (%d)\n",$arrowsCount,$resolvedArrows,($arrowsCount - $resolvedArrows);
   print STDERR sprintf "Multiple matches %d\n",$multiMatches;
+}
+##########################################
+# $linksth = $dbh->prepare("update links set tonode = ?, link = ?,matchtype = ? where id = ?");
+########################################
+sub updateLinkRecord {
+  my $id = shift;
+  my $d = shift;
+  my $linktext = shift;
+
+
+  $linksth->bind_param(1,$d->{node});
+  $linksth->bind_param(2,$linktext);
+  $linksth->bind_param(3,$d->{type});
+  $linksth->bind_param(4,$id);
+  if ($linksth->execute()) {
+    $writeCount++;
+  }
 }
 ###########################################################################
 # main
@@ -964,7 +996,9 @@ $lookupsth = $dbh->prepare("select id,root,word,bword,nodeId,page from entry whe
 $itypesth = $dbh->prepare("select id,root,word,bword,nodeId,page from entry where root = ? and itype = ? and datasource = 1");
 $baresth = $dbh->prepare("select id,root,word,bword,bareword,nodeId,page from entry where bareword = ? and datasource = 1");
 $headsth = $dbh->prepare("select id,root,word,bword,bareword,nodeId,headword,page from entry where headword = ? and datasource = 1");
+$linksth = $dbh->prepare("update links set tonode = ?, link = ?,matchtype = ? where id = ?");
 my @nodes;
+
 
 @nodes = split /,/,$nodeName;
 if ($nodeName) {

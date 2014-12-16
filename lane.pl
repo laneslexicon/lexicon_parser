@@ -97,6 +97,7 @@ my $dbErrorCount = 0;
 my $xrefsth;
 my $entrysth;
 my $rootsth;
+my $linksth;
 my $alternatesth;
 my $lookupsth;  # for 'select id from entry where word = ?
 my $baresth;  #  = $dbh->prepare("select id,word from entry where bareword = ?");
@@ -124,6 +125,7 @@ my @links;
 my $supplement;
 my $currentFile;
 my $jumpId = 0;
+my $linkId = 0;
 sub testConvertString {
   my $t = shift;
   my $s = $t;
@@ -836,6 +838,29 @@ sub writeAlternate {
     $writeCount = 0;
   }
 }
+sub writeLinkRecords {
+  my $root = shift;
+  my $word = shift;
+  my $node = shift;
+  my $fromId = shift;
+  my $toId = shift;
+
+  while($fromId <= $toId) {
+    $linksth->bind_param(1,$fromId);
+    $linksth->bind_param(2,$root);
+    $linksth->bind_param(3,$word);
+    $linksth->bind_param(4,$node);
+    if ($linksth->execute()) {
+      $writeCount++;
+    }
+    $fromId++;
+  }
+  if ($writeCount > $commitCount) {
+    $dbh->commit();
+    $totalWriteCount += $writeCount;
+    $writeCount = 0;
+  }
+}
 ################################################################
 # these two subroutines traverse the node converting all text
 # nodes whose parent has lang="ar"
@@ -979,6 +1004,11 @@ sub insertTropical {
   }
   $x .= substr($xml,$lastpos);
   return $x;
+}
+sub insertLinkId {
+  my $xml = shift;
+  $xml =~  s/(orth\s+type\s*=\s*"arrow")/{ sprintf "$1 linkId=\"%d\"",++$linkId;}/ge;
+  return $xml;
 }
 ################################################################
 #
@@ -1200,6 +1230,8 @@ sub processRoot {
       }
       $xml = insertSenses($xml);
       $xml = insertTropical($xml);
+      my $startLinkId = $linkId;
+      $xml = insertLinkId($xml);
       #          }
       #
       # update db
@@ -1215,6 +1247,13 @@ sub processRoot {
                    convertString($currentRoot,"root",$rootLineNumber),
                    $currentRoot,
                    @currentForms);
+      }
+      if ($ok) {
+        writeLinkRecords($currentRoot,
+                         $currentWord,
+                         $currentNodeId,
+                         $startLinkId+1,
+                         $linkId);
       }
       # for use by the alternates
       if (! $firstNodeId ) {
@@ -2457,6 +2496,7 @@ sub prepareSql {
     # for the <orth> forms
     $orthsth = $dbh->prepare("insert into orth (datasource,entryid,form,bform,nodeid,root,broot) values (1,?,?,?,?,?,?)");
     $lastentrysth = $dbh->prepare("select max(id) from entry where datasource = 1");
+    $linksth = $dbh->prepare("insert into links (datasource,id,root,word,fromnode) values (?,?,?,?)");
   };
   if ($@) {
     print STDERR "SQL prepare error:$@\n";
