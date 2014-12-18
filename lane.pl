@@ -842,23 +842,33 @@ sub writeLinkRecords {
   my $root = shift;
   my $word = shift;
   my $node = shift;
-  my $fromId = shift;
-  my $toId = shift;
+  my $xml = shift;
 
-  while($fromId <= $toId) {
-    $linksth->bind_param(1,$fromId);
-    $linksth->bind_param(2,$root);
-    $linksth->bind_param(3,$word);
-    $linksth->bind_param(4,$node);
-    if ($linksth->execute()) {
-      $writeCount++;
+  my $parser = XML::LibXML->new;
+  my $doc = $parser->parse_string($xml);
+  $doc->setEncoding("UTF-8");
+  my $nodes = $doc->getElementsByTagName ("orth");
+  for (my $i=0;$i < $nodes->size();$i++) {
+    my $n = $nodes->item($i);
+    my $attr = $n->getAttribute("type");
+    if ($attr && ($attr eq "arrow")) {
+      my $linkId = $n->getAttribute("linkId");
+      if ($linkId =~ /\d+/) {
+        $linksth->bind_param(1,$linkId);
+        $linksth->bind_param(2,$root);
+        $linksth->bind_param(3,$word);
+        $linksth->bind_param(4,$node);
+        $linksth->bind_param(5,$n->textContent);
+        if ($linksth->execute()) {
+          $writeCount++;
+        }
+        if ($writeCount > $commitCount) {
+          $dbh->commit();
+          $totalWriteCount += $writeCount;
+          $writeCount = 0;
+        }
+      }
     }
-    $fromId++;
-  }
-  if ($writeCount > $commitCount) {
-    $dbh->commit();
-    $totalWriteCount += $writeCount;
-    $writeCount = 0;
   }
 }
 ################################################################
@@ -1232,7 +1242,6 @@ sub processRoot {
       $xml = insertTropical($xml);
       my $startLinkId = $linkId;
       $xml = insertLinkId($xml);
-      #          }
       #
       # update db
       #
@@ -1248,12 +1257,14 @@ sub processRoot {
                    $currentRoot,
                    @currentForms);
       }
+      #
+      # write link records that will be updated when links.pl is run
+      #
       if ($ok) {
         writeLinkRecords($currentRoot,
                          $currentWord,
                          $currentNodeId,
-                         $startLinkId+1,
-                         $linkId);
+                         $xml);
       }
       # for use by the alternates
       if (! $firstNodeId ) {
@@ -2496,7 +2507,7 @@ sub prepareSql {
     # for the <orth> forms
     $orthsth = $dbh->prepare("insert into orth (datasource,entryid,form,bform,nodeid,root,broot) values (1,?,?,?,?,?,?)");
     $lastentrysth = $dbh->prepare("select max(id) from entry where datasource = 1");
-    $linksth = $dbh->prepare("insert into links (datasource,id,root,word,fromnode) values (?,?,?,?)");
+    $linksth = $dbh->prepare("insert into links (datasource,linkid,root,word,fromnode,link) values (1,?,?,?,?,?)");
   };
   if ($@) {
     print STDERR "SQL prepare error:$@\n";

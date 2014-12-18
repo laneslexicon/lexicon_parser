@@ -679,6 +679,7 @@ sub lookupWord {
   my $root = shift;
   my $word = shift;
 
+#  print STDERR "Doing root $root, link word $word \n";
   $lookupsth->bind_param(1,$word);
   $lookupsth->execute();
   my $rec = $lookupsth->fetchrow_hashref;
@@ -711,6 +712,18 @@ sub lookupWord {
   }
   return ();
 }
+sub remove_affixes {
+  my $word = shift;
+  my $t = $word;
+  $word =~ s/\N{ARABIC SUKUN}$//;
+  $word =~ s/\N{ARABIC LETTER HEH}\N{ARABIC DAMMA}\N{ARABIC LETTER MEEM}$//;
+  $word =~ s/\N{ARABIC LETTER NOON}\N{ARABIC FATHA}\N{ARABIC LETTER ALEF}$//;
+  $word =~ s/^\N{ARABIC LETTER BEH}\N{ARABIC KASRA}*//;
+#  $word =~ s/\N{ARABIC LETTER YEH}$//;
+  $word =~ s/\N{ARABIC LETTER ALEF MAKSURA}$//;
+#  print STDERR "Affixes before:$t, after : $word\n";
+  return $word;
+}
 ###############################################################
 # calls lookupWord for each word in the entry
 # returns array of matches
@@ -721,9 +734,12 @@ sub findLink {
   my @words;
   $text =~ s/^\s+//g;
   $text =~ s/\s+$//g;
-  if ($text =~ /\s/) {
-    push @words,$text;
-    push @words,split /\s/,$text;
+
+  if ($text =~ /\s+/) {
+    #   for multiword text we need to reverse the array
+    #
+    push @words,split /\s+/,$text;
+    @words = reverse @words;
   }
   else {
     push @words,$text;
@@ -731,9 +747,31 @@ sub findLink {
   my @matches;
   my ($linkToId,$linkToRoot,$linkToNode,$linkToWord,$linkType,$linkToPage);
   my $wordMatched;
-  foreach my $linkword (@words) {
-    ($linkToId,$linkToRoot,$linkToNode,$linkToWord,$linkToPage,$linkType) = lookupWord($root,$linkword);
-    if ($linkToNode) {
+  # For multiword links:
+  #
+  # if we assume that the down arrow immediately precedes the linked word
+  # then we need only try to find the first word,we can do:
+  #  my $max = 1;
+  #
+  # otherwise we can do:
+  #  my $max = $#words;
+  #
+  #
+  my $max = 1;
+
+  for(my $i=0;$i < $max;$i++) {
+      my $linkword = $words[$i];
+      my $affixmatch = 0;
+      ($linkToId,$linkToRoot,$linkToNode,$linkToWord,$linkToPage,$linkType) = lookupWord($root,$linkword);
+      if (! $linkToNode ) {
+        my $t = remove_affixes($linkword);
+        if ($t ne $linkword) {
+          $affixmatch = 1;
+          ($linkToId,$linkToRoot,$linkToNode,$linkToWord,$linkToPage,$linkType) = lookupWord($root,$t);
+        }
+    }
+      if ($linkToNode) {
+#        print sprintf "[%d] Matched word %s to %s, node %s\n",$affixmatch,$linkword,decode("UTF-8",$linkToWord),$linkToNode;
       push @matches,{ node => $linkToNode,
                       id => $linkToId,
                       root => decode("UTF-8",$linkToRoot),
@@ -741,7 +779,10 @@ sub findLink {
                       word => decode("UTF-8",$linkToWord),
                       page => $linkToPage,
                       type => $linkType };
-    }
+      }
+      else {
+#        print sprintf "Unmatched word %s\n",$linkword;
+      }
   }
 #  print Data::Dumper->Dump([\@matches],[qw(matches)]);
   return @matches;
@@ -825,6 +866,7 @@ sub setLinks {
               $m->{matchedword},
               $m->{node},
               $m->{word};
+
           }
           ### update the node xml,
           my $matchIx = -1;
@@ -833,6 +875,9 @@ sub setLinks {
           }
           if (scalar(@matches) > 1) {
             ### very much TODO
+            ### is it reasonable to assume that the ↓ always precedes the
+            ### the word? If so, then we can ignore multiword links and just
+            ### process the first word.
             $matchIx = 0;
           }
           if ($matchIx != -1) {
@@ -847,7 +892,7 @@ sub setLinks {
             $updateRequired = 1;
             if (! $noUpdate && ($linkId != -1)) {
               # update links table
-              updateLinkRecord($linkId,$m,$linktext);
+              updateLinkRecord($linkId,$m->{node},$m->{type},$linktext);
             }
             if ($showXml) {
               print STDERR $node->toString . "\n\n";
@@ -855,13 +900,15 @@ sub setLinks {
             $resolvedArrows++;
           }
           else {
+
             print STDERR "We should not be here\n";
           }
         }
         else {
-            $node->setAttribute("nogo",$linkId);
-            $updateRequired = 1;
-            print $logfh sprintf "0,%s,%s\n",$linktext,$nodeId;
+          updateLinkRecord($linkId,"",-1,$linktext);
+          $node->setAttribute("nogo",$linkId);
+          $updateRequired = 1;
+          print $logfh sprintf "0,%s,%s\n",$linktext,$nodeId;
         }
       }
     }
@@ -897,13 +944,14 @@ sub setLinks {
 ########################################
 sub updateLinkRecord {
   my $id = shift;
-  my $d = shift;
+  my $toNode = shift;
+  my $resolveType = shift;
   my $linktext = shift;
 
 
-  $linksth->bind_param(1,$d->{node});
+  $linksth->bind_param(1,$toNode);
   $linksth->bind_param(2,$linktext);
-  $linksth->bind_param(3,$d->{type});
+  $linksth->bind_param(3,$resolveType);
   $linksth->bind_param(4,$id);
   if ($linksth->execute()) {
     $writeCount++;
