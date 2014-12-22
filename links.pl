@@ -27,6 +27,7 @@ my $itypesth;
 my $baresth;
 my $headsth;
 my $linksth;
+my $posh;
 my $linkCount=0;
 my $arrowsCount=0;
 my $resolvedArrows=0;
@@ -173,7 +174,7 @@ sub find_headwords {
 
 
   print $headfh sprintf "Index,Node,Root,Broot,Head,BHead\n";
-  my $sth = $dbh->prepare("select id,root,broot,word,bword,nodeId from entry");
+  my $sth = $dbh->prepare("select id,root,broot,word,bword,nodeid from entry");
   my $update = $dbh->prepare("update entry set headword = ? where id = ?");
   if ( $update->err )    {
     die "ERROR return code:" . $update->err . " error msg: " . $update->errstr . "\n";
@@ -461,7 +462,7 @@ sub setLinksForNode {
       $lookupsth->bind_param(1,$text);
       $lookupsth->execute();
       #        print STDERR "Lookup:[$text]\n";
-      my ($id,$bword,$nodeId) = $lookupsth->fetchrow_array;
+      my ($id,$bword,$nodeid) = $lookupsth->fetchrow_array;
       if (!$id) {
         #
         # some have dammatan forms so check for these
@@ -474,9 +475,9 @@ sub setLinksForNode {
           $lookupsth->bind_param(1,$text . "N");
         }
         if ($lookupsth->execute()) {
-          ($id,$bword,$nodeId) = $lookupsth->fetchrow_array;
+          ($id,$bword,$nodeid) = $lookupsth->fetchrow_array;
           #          if ($id) {
-          #            print STDERR "Found at [$id][$bword][$nodeId]\n";
+          #            print STDERR "Found at [$id][$bword][$nodeid]\n";
           #          }
           #        }
         }
@@ -490,9 +491,9 @@ sub setLinksForNode {
         my $bareword;
         $baresth->bind_param(1,$word);
         if ($baresth->execute()) {
-          ($id,$word,$bword,$bareword,$nodeId) = $baresth->fetchrow_array;
+          ($id,$word,$bword,$bareword,$nodeid) = $baresth->fetchrow_array;
           if ($id) {
-            #            print STDERR sprintf "[%d] bareword match %s, $nodeId\n",$isArrow,decode("UTF-8",$word);
+            #            print STDERR sprintf "[%d] bareword match %s, $nodeid\n",$isArrow,decode("UTF-8",$word);
             $bareWordMatch = 1;
           }
         }
@@ -511,14 +512,14 @@ sub setLinksForNode {
       #  check the record we're linking to is not this one
       #
       if ($id && ($id != $currentRecordId)) {
-        if ($nodeId) {
+        if ($nodeid) {
           $linkCount++;
           $node->setAttribute("goto",$id);
-          $node->setAttribute("nodeid",$nodeId);
+          $node->setAttribute("nodeid",$nodeid);
           $node->setAttribute("linkid",$linkCount);
           $node->setAttribute("bareword",$bareWordMatch);
           $updateNode = 1;
-          push @links, { type => 0,id => $id,node => $nodeId,bword => $bword,word => $text,linkid => $linkCount,bareword => $bareWordMatch};
+          push @links, { type => 0,id => $id,node => $nodeid,bword => $bword,word => $text,linkid => $linkCount,bareword => $bareWordMatch};
         } else {
           print STDERR "Record id:$id has no nodeid\n";
         }
@@ -538,22 +539,22 @@ sub setLinksOld {
   my $sql;
   my $entrysth;
   if (! $node ) {
-    $sql = "select id,root,broot,word,bword,nodeId,xml,page,headword from entry where datasource = 1";
+    $sql = "select id,root,broot,word,bword,nodeid,xml,page,headword from entry where datasource = 1";
     $entrysth = $dbh->prepare($sql);
   } else {
-    $sql = "select id,root,broot,word,bword,nodeId,xml,page,headword from entry where datasource = 1 and nodeid = ?";
+    $sql = "select id,root,broot,word,bword,nodeid,xml,page,headword from entry where datasource = 1 and nodeid = ?";
     $entrysth = $dbh->prepare($sql);
     $entrysth->bind_param(1,$node);
   }
   my $updatesth = $dbh->prepare('update entry set xml = ? where id = ?');
-  $baresth = $dbh->prepare("select id,word,bword,bareword,nodeId from entry where bareword = ? and datasource = 1");
+  $baresth = $dbh->prepare("select id,word,bword,bareword,nodeid from entry where bareword = ? and datasource = 1");
 
   my $lastentrysth;
   my @entry;
   $entrysth->execute();
   while (@entry = $entrysth->fetchrow_array()) {
-    my ($id, $root,$broot,$word,$bword,$nodeId,$xml,$page) = @entry;
-    print STDERR "$nodeId\n" unless ! $verbose;
+    my ($id, $root,$broot,$word,$bword,$nodeid,$xml,$page) = @entry;
+    print STDERR "$nodeid\n" unless ! $verbose;
     my $doc = $parser->parse_string($xml);
     $doc->setEncoding("UTF-8");
     my $nodes = $doc->getElementsByTagName("entryFree");
@@ -563,7 +564,7 @@ sub setLinksOld {
       $#links = -1;             # clear old links
       my $node = $nodes->item($i);
       $updateNode = 0;
-      $currentNodeId = $nodeId;
+      $currentNodeId = $nodeid;
       $currentWord = $word;
       #
       # in links mode this wil call
@@ -585,7 +586,7 @@ sub setLinksOld {
         }
       }
       if (scalar(@links) > 0) {
-        print $logfh sprintf "Links for [%d][%s][%s][%s]\n",$id,$nodeId,decode("UTF-8",$word),$bword;
+        print $logfh sprintf "Links for [%d][%s][%s][%s]\n",$id,$nodeid,decode("UTF-8",$word),$bword;
         foreach my $link (@links) {
           if ($link->{type} == 0) {
             print $logfh sprintf "[%d]    [%s]  to  [%d][%s] [%s][%d]\n",$link->{linkid},$link->{word},$link->{id},$link->{node},$link->{bword},$link->{bareword};
@@ -684,12 +685,20 @@ sub lookupWord {
   $lookupsth->execute();
   my $rec = $lookupsth->fetchrow_hashref;
   if ($rec) {
-    return ($rec->{id},$rec->{root},$rec->{nodeId},$rec->{word},$rec->{page},1);
+
+    return ($rec->{id},$rec->{root},$rec->{nodeid},$rec->{word},$rec->{page},1);
+  }
+  $posh->bind_param(1,$word);
+  $posh->execute();
+  $rec = $posh->fetchrow_hashref;
+  if ($rec) {
+#    print STDERR "found in pos " .$rec->{nodeid} . "\n";
+    return ($rec->{id},$rec->{root},$rec->{nodeid},$rec->{headword},-1,5);
   }
   $headsth->bind_param(1,$word);
   $rec = $lookupsth->fetchrow_hashref;
   if ($rec) {
-    return ($rec->{id},$rec->{root},$rec->{nodeId},$rec->{word},$rec->{page},2);
+    return ($rec->{id},$rec->{root},$rec->{nodeid},$rec->{word},$rec->{page},2);
   }
   my $count = ($word =~ tr/\x{64b}-\x{652}\x{670}\x{671}//d);
   my $bareword;
@@ -697,7 +706,7 @@ sub lookupWord {
   if ($baresth->execute()) {
     $rec = $baresth->fetchrow_hashref;
     if ($rec) {
-      return ($rec->{id},$rec->{root},$rec->{nodeId},$rec->{word},$rec->{page},3);
+      return ($rec->{id},$rec->{root},$rec->{nodeid},$rec->{word},$rec->{page},3);
     }
   }
   my $itype = check_verbforms($root,$word);
@@ -707,7 +716,7 @@ sub lookupWord {
     $itypesth->execute();
     $rec = $itypesth->fetchrow_hashref;
     if ($rec) {
-      return ($rec->{id},$rec->{root},$rec->{nodeId},$rec->{word},$rec->{page},4);
+      return ($rec->{id},$rec->{root},$rec->{nodeid},$rec->{word},$rec->{page},4);
     }
   }
   return ();
@@ -718,7 +727,11 @@ sub remove_affixes {
   $word =~ s/\N{ARABIC SUKUN}$//;
   $word =~ s/\N{ARABIC LETTER HEH}\N{ARABIC DAMMA}\N{ARABIC LETTER MEEM}$//;
   $word =~ s/\N{ARABIC LETTER NOON}\N{ARABIC FATHA}\N{ARABIC LETTER ALEF}$//;
+  $word =~ s/\N{ARABIC LETTER TEH}(\N{ARABIC FATHA}|\N{ARABIC DAMMA}|\N{ARABIC KASRA})$//;
+  $word =~ s/^\N{ARABIC LETTER TEH}(\N{ARABIC FATHA}|\N{ARABIC DAMMA}|\N{ARABIC KASRA})//;
   $word =~ s/^\N{ARABIC LETTER BEH}\N{ARABIC KASRA}*//;
+  $word =~ s/\N{ARABIC LETTER KAF}\N{ARABIC FATHA}*$//;
+  $word =~ s/^\N{ARABIC LETTER ALEF WITH HAMZA ABOVE}//;
 #  $word =~ s/\N{ARABIC LETTER YEH}$//;
   $word =~ s/\N{ARABIC LETTER ALEF MAKSURA}$//;
 #  print STDERR "Affixes before:$t, after : $word\n";
@@ -804,24 +817,24 @@ sub setLinks {
   my $linkToNode;
   my $updateRequired;
   if (! $node ) {
-    $sql = "select id,root,broot,word,bword,nodeId,xml,page from entry where datasource = 1 order by nodenum asc";
+    $sql = "select id,root,broot,word,bword,nodeid,xml,page from entry where datasource = 1 order by nodenum asc";
     $entrysth = $dbh->prepare($sql);
   } else {
-    $sql = "select id,root,broot,word,bword,nodeId,xml,page from entry where datasource = 1 and nodeid = ?";
+    $sql = "select id,root,broot,word,bword,nodeid,xml,page from entry where datasource = 1 and nodeid = ?";
     $entrysth = $dbh->prepare($sql);
     $entrysth->bind_param(1,$node);
   }
   my $updatesth = $dbh->prepare('update entry set xml = ? where id = ?');
-  $baresth = $dbh->prepare("select id,root,word,bword,bareword,nodeId,page from entry where bareword = ? and datasource = 1");
+  $baresth = $dbh->prepare("select id,root,word,bword,bareword,nodeid,page from entry where bareword = ? and datasource = 1");
 
-  my $lookupsth = $dbh->prepare("select id,root,bword,nodeId,page from entry where word = ? and datasource = 1");
+  my $lookupsth = $dbh->prepare("select id,root,bword,nodeid,page from entry where word = ? and datasource = 1");
 
   my $lastentrysth;
   my @entry;
 
   $entrysth->execute();
   while (@entry = $entrysth->fetchrow_array()) {
-    my ($id, $root,$broot,$word,$bword,$nodeId,$xml,$page) = @entry;
+    my ($id, $root,$broot,$word,$bword,$nodeid,$xml,$page) = @entry;
     my $doc = $parser->parse_string($xml);
     $doc->setEncoding("UTF-8");
     my $nodes = $doc->getElementsByTagName("orth");
@@ -842,7 +855,7 @@ sub setLinks {
         }
         # show node name
         if ($verbose && !$printHeader ) {
-          print STDERR $nodeId . "\n";
+          print STDERR $nodeid . "\n";
           $printHeader = 1;
         }
         if ($showXml) {
@@ -858,11 +871,12 @@ sub setLinks {
           for(my $j=0;$j <= $#matches;$j++) {
             my $m = $matches[$j];
             my ($linkToId,$linkToNode,$linkToWord,$linkType);
-            print  $logfh sprintf "‎ %d,%d,%s,%s,%s,%s,%s\n",
+            print  $logfh sprintf "‎ %d,%d,%d,%s,%s,%s,%s,%s\n",
               scalar(@matches),
+              $linkId,
               $m->{type},
               $linktext,
-              $nodeId,
+              $nodeid,
               $m->{matchedword},
               $m->{node},
               $m->{word};
@@ -908,7 +922,7 @@ sub setLinks {
           updateLinkRecord($linkId,"",-1,$linktext);
           $node->setAttribute("nogo",$linkId);
           $updateRequired = 1;
-          print $logfh sprintf "0,%s,%s\n",$linktext,$nodeId;
+          print $logfh sprintf "0,%d,%s,%s\n",$linkId,$linktext,$nodeid;
         }
       }
     }
@@ -1040,11 +1054,12 @@ if (! $updateLinks ) {
 my $linklog = File::Spec->catfile($logDir,"link.log");
 open($logfh,">:encoding(UTF8)",$linklog) or die "Cannot open logfile $@\n";
 
-$lookupsth = $dbh->prepare("select id,root,word,bword,nodeId,page from entry where word = ? and datasource = 1");
-$itypesth = $dbh->prepare("select id,root,word,bword,nodeId,page from entry where root = ? and itype = ? and datasource = 1");
-$baresth = $dbh->prepare("select id,root,word,bword,bareword,nodeId,page from entry where bareword = ? and datasource = 1");
-$headsth = $dbh->prepare("select id,root,word,bword,bareword,nodeId,headword,page from entry where headword = ? and datasource = 1");
+$lookupsth = $dbh->prepare("select id,root,word,bword,nodeid,page from entry where word = ? and datasource = 1");
+$itypesth = $dbh->prepare("select id,root,word,bword,nodeid,page from entry where root = ? and itype = ? and datasource = 1");
+$baresth = $dbh->prepare("select id,root,word,bword,bareword,nodeid,page from entry where bareword = ? and datasource = 1");
+$headsth = $dbh->prepare("select id,root,word,bword,bareword,nodeid,headword,page from entry where headword = ? and datasource = 1");
 $linksth = $dbh->prepare("update links set tonode = ?, link = ?,matchtype = ? where id = ?");
+$posh = $dbh->prepare("select id,root,headword,nodeid from pos where word = ?");
 my @nodes;
 
 
