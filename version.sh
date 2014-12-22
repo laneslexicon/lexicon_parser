@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/local/bin/bash
 if [ ! -e 'lane.pl' ]; then
     echo "This script must run from same directory as lane.pl"
     exit 1;
@@ -11,7 +11,8 @@ echo "$projectversion-$revisioncount" > SCRIPTVERSION
 myd=`pwd`
 cd ..
 if [ ! -d "xml" ]; then
-    echo "Cannot local XML directory"
+    echo "Cannot find local XML directory"
+    echo "This script should be run from the parser directory"
     exit 1;
 fi
 cd xml
