@@ -58,6 +58,7 @@ my $rootLineNumber;
 my $entryLineNumber;
 my $withPerseus = 0;
 my $testConversionMode = 0;
+my $partsOfSpeechMode = 0;
 my $noLogging = 0;
 my $doAll = 1;
 my $showProgress = 0;
@@ -640,7 +641,7 @@ sub traverseNode {
 }
 ######################################################################
 #
-# $dbh->prepare("insert into entry (root,word,itype,nodeId,bword,xml)
+# $dbh->prepare("insert into entry (root,word,itype,nodeid,bword,xml)
 #                       values (?,?,?,?,?,?)");
 #
 #####################################################################
@@ -1150,7 +1151,7 @@ sub processRoot {
     #    </form>
     #  </entryFree>
     #
-    # A nodeId is created by appending the entry index ($i) to the last node id
+    # A nodeid is created by appending the entry index ($i) to the last node id
     # Eg n21492-7 means that the entry with this node id is the seventh entry for
     # the current root and that it occurs after the known entry with id n21492
     #
@@ -1786,10 +1787,10 @@ sub scanTags {
 
   $writeCount = 0;
   $sth = $dbh->prepare("select * from entry where datasource = 1");
-  my $entries = $dbh->selectall_arrayref("SELECT id,root,broot,word,bword,nodeId,xml from entry");
+  my $entries = $dbh->selectall_arrayref("SELECT id,root,broot,word,bword,nodeid,xml from entry");
 
   foreach my $row (@$entries) {
-    my ($id, $root,$broot,$word,$bword,$nodeId,$xml) = @$row;
+    my ($id, $root,$broot,$word,$bword,$nodeid,$xml) = @$row;
     my $doc = $parser->parse_string($xml);
     my $docroot = $doc->documentElement;
     traverseNode($docroot);
@@ -1833,16 +1834,16 @@ sub checkArrow {
 
       $lookupsth->bind_param(1,$text);
       $lookupsth->execute();
-      my ($id,$bword,$nodeId) = $lookupsth->fetchrow_array;
+      my ($id,$bword,$nodeid) = $lookupsth->fetchrow_array;
       my $ok = 0;
       if ($id) {
         $ok = 1;
       } else {
-        $nodeId = "";
+        $nodeid = "";
       }
       print STDOUT sprintf "%d,%s,%s,%s,%s,%s,%s,%s\n",$ok,$currentNodeId,
         decode("utf-8",$currentRoot),$currentBRoot,
-        decode("utf-8",$currentWord),$currentBWord,$text,$nodeId;
+        decode("utf-8",$currentWord),$currentBWord,$text,$nodeid;
     }
   }
 }
@@ -1860,13 +1861,13 @@ sub scanArrow {
   #  my $parser = new XML::DOM::Parser;
 
   $writeCount = 0;
-  my $entries = $dbh->selectall_arrayref("SELECT id,root,broot,word,bword,nodeId,xml from entry order by root");
+  my $entries = $dbh->selectall_arrayref("SELECT id,root,broot,word,bword,nodeid,xml from entry order by root");
   print STDOUT "Found,In Node,Root,Buckwalter,Word,Buckwalter word,Arrow target,At NodeId\n";
   foreach my $row (@$entries) {
-    my ($id, $root,$broot,$word,$bword,$nodeId,$xml) = @$row;
+    my ($id, $root,$broot,$word,$bword,$nodeid,$xml) = @$row;
     my $doc = $parser->parse_string($xml);
     my $docroot = $doc->documentElement;
-    $currentNodeId = $nodeId;
+    $currentNodeId = $nodeid;
     $currentRoot = $root;
     $currentBRoot = $broot;
     $currentWord = $word;
@@ -1942,7 +1943,7 @@ sub setLinksForNode {
       $lookupsth->bind_param(1,$text);
       $lookupsth->execute();
       #        print STDERR "Lookup:[$text]\n";
-      my ($id,$bword,$nodeId) = $lookupsth->fetchrow_array;
+      my ($id,$bword,$nodeid) = $lookupsth->fetchrow_array;
       if (!$id) {
         #
         # some have dammatan forms so check for these
@@ -1955,9 +1956,9 @@ sub setLinksForNode {
           $lookupsth->bind_param(1,$text . "N");
         }
         if ($lookupsth->execute()) {
-          ($id,$bword,$nodeId) = $lookupsth->fetchrow_array;
+          ($id,$bword,$nodeid) = $lookupsth->fetchrow_array;
           #          if ($id) {
-          #            print STDERR "Found at [$id][$bword][$nodeId]\n";
+          #            print STDERR "Found at [$id][$bword][$nodeid]\n";
           #          }
           #        }
         }
@@ -1971,9 +1972,9 @@ sub setLinksForNode {
         my $bareword;
         $baresth->bind_param(1,$word);
         if ($baresth->execute()) {
-          ($id,$word,$bword,$bareword,$nodeId) = $baresth->fetchrow_array;
+          ($id,$word,$bword,$bareword,$nodeid) = $baresth->fetchrow_array;
           if ($id) {
-#            print STDERR sprintf "[%d] bareword match %s, $nodeId\n",$isArrow,decode("UTF-8",$word);
+#            print STDERR sprintf "[%d] bareword match %s, $nodeid\n",$isArrow,decode("UTF-8",$word);
             $bareWordMatch = 1;
           }
         }
@@ -1992,14 +1993,14 @@ sub setLinksForNode {
       #  check the record we're linking to is not this one
       #
       if ($id && ($id != $currentRecordId)) {
-        if ($nodeId) {
+        if ($nodeid) {
           $linkCount++;
           $node->setAttribute("goto",$id);
-          $node->setAttribute("nodeid",$nodeId);
+          $node->setAttribute("nodeid",$nodeid);
           $node->setAttribute("linkid",$linkCount);
           $node->setAttribute("bareword",$bareWordMatch);
           $updateNode = 1;
-          push @links, { type => 0,id => $id,node => $nodeId,bword => $bword,word => $text,linkid => $linkCount,bareword => $bareWordMatch};
+          push @links, { type => 0,id => $id,node => $nodeid,bword => $bword,word => $text,linkid => $linkCount,bareword => $bareWordMatch};
         } else {
           print STDERR "Record id:$id has no nodeid\n";
         }
@@ -2043,9 +2044,9 @@ sub setLinks {
   #   push @roots, $r[0];
   # }
   my $lettersth = $dbh->prepare("select bword from root where bletter = ? and datasource = 1");
-  my $entrysth = $dbh->prepare("select id,root,broot,word,bword,nodeId,xml,page from entry where broot = ? and datasource = 1");
+  my $entrysth = $dbh->prepare("select id,root,broot,word,bword,nodeid,xml,page from entry where broot = ? and datasource = 1");
   my $updatesth = $dbh->prepare('update entry set xml = ? where id = ?');
-  $baresth = $dbh->prepare("select id,word,bword,bareword,nodeId from entry where bareword = ? and datasource = 1");
+  $baresth = $dbh->prepare("select id,word,bword,bareword,nodeid from entry where bareword = ? and datasource = 1");
 
   my $lastentrysth;
 
@@ -2062,7 +2063,7 @@ sub setLinks {
       # iterate through the entries for this root
       my @entry;
       while (@entry = $entrysth->fetchrow_array()) {
-        my ($id, $root,$broot,$word,$bword,$nodeId,$xml,$page) = @entry;
+        my ($id, $root,$broot,$word,$bword,$nodeid,$xml,$page) = @entry;
         #        print STDERR "Doing word $bword\n";
         #        if (0) {
         my $doc = $parser->parse_string($xml);
@@ -2074,7 +2075,7 @@ sub setLinks {
           $#links = -1;         # clear old links
           my $node = $nodes->item($i);
           $updateNode = 0;
-          $currentNodeId = $nodeId;
+          $currentNodeId = $nodeid;
           $currentWord = $word;
           #
           # in links mode this wil call
@@ -2096,7 +2097,7 @@ sub setLinks {
             }
           }
           if (scalar(@links) > 0) {
-            print $llog sprintf "Node:[%d][%s][%s][%s]\n",$id,$nodeId,$word,$bword;
+            print $llog sprintf "Node:[%d][%s][%s][%s]\n",$id,$nodeid,$word,$bword;
             foreach my $link (@links) {
               if ($link->{type} == 0) {
                 print $llog sprintf "[%d]    [%s]  to  [%d][%s] [%s][%d]\n",$link->{linkid},$link->{word},$link->{id},$link->{node},$link->{bword},$link->{bareword};
@@ -2138,7 +2139,7 @@ sub updateXrefs {
   print STDERR "Updating cross-references\n" unless ! $showProgress;
   my $sth =  $dbh->prepare("select id,node from xref where datasource = 1");
   my $uh = $dbh->prepare("update xref set root = ?,broot = ?,entry = ?,bentry = ?,nodenum = ? where id = ?");
-  my $lh = $dbh->prepare("select root,broot,word,bword,nodenum from entry where nodeId = ? and datasource = 1");
+  my $lh = $dbh->prepare("select root,broot,word,bword,nodenum from entry where nodeid = ? and datasource = 1");
   if (! $sth || ! $uh || ! $lh) {
     print STDERR "Error preparing update xref SQL";
     return;
@@ -2197,7 +2198,7 @@ sub get_insert_point {
 ####################################################################
 sub fix_supplement_itype {
   print STDERR "Fixing supplement details\n" unless ! $showProgress;
-  my $sth = $dbh->prepare("select id,broot,root,word,itype,nodeId,nodenum,file from entry where supplement = 1 and itype != \"\" order by id asc");
+  my $sth = $dbh->prepare("select id,broot,root,word,itype,nodeid,nodenum,file from entry where supplement = 1 and itype != \"\" order by id asc");
   my $dup = $dbh->prepare("select id,root,word,itype,nodeid,nodenum,file from entry where root = ?  and supplement = 0 order by nodenum asc");
 
   my $numh = $dbh->prepare("select id,nodenum from entry where nodenum < ? order by nodenum desc");
@@ -2237,19 +2238,19 @@ sub fix_supplement_itype {
         $updateh->bind_param(1,$n);
         $updateh->bind_param(2,$c->{id});
         if ($updateh->execute()) {
-#          print STDERR sprintf "Root %s, update node %s, nodenum set %f\n",$c->{broot},$c->{nodeId},$n;
+#          print STDERR sprintf "Root %s, update node %s, nodenum set %f\n",$c->{broot},$c->{nodeid},$n;
         }
         else {
-#          print STDERR sprintf "Error updating node %s\n",$c->{nodeId};
+#          print STDERR sprintf "Error updating node %s\n",$c->{nodeid};
         }
       }
       else {
-#        print STDERR "No prior nodenum record for root %s, node %s, using nodenum %f from \n",$c->{broot},$c->{nodeId},$p->{nodenum},$p->{nodeid};
+#        print STDERR "No prior nodenum record for root %s, node %s, using nodenum %f from \n",$c->{broot},$c->{nodeid},$p->{nodenum},$p->{nodeid};
       }
 
     }
     else {
-#      print STDERR "Cannot find insert point for root %s, node %s\n",$c->{broot},$c->{nodeId};
+#      print STDERR "Cannot find insert point for root %s, node %s\n",$c->{broot},$c->{nodeid};
     }
   }
   $dbh->commit();
@@ -2345,6 +2346,72 @@ sub stripDiacritics {
    }
   $dbh->commit();
 }
+sub partsOfSpeech {
+  my $entry = $dbh->prepare("select id,nodeid,root,word,xml from entry where datasource = 1 order by nodenum asc");
+  my $posh = $dbh->prepare("insert into pos (datasource,root,headword,word,nodeid,pos) values (1,?,?,?,?,\"infn\")
+");
+
+  if (! $entry->execute()) {
+    print STDERR "Error prepare pos sql\n";
+    return;
+  }
+  my $xml;
+  my $infCount = 0;
+  my $writeCount=0;
+  my $errorCount=0;
+  my $updateCount=0;
+  my $t;
+  my $s;
+  #
+  # we're trying to capture the first occurrence of inf.n.
+  # specified immediately after the head word(s). This is before
+  # any text rendered as italic
+  #
+  # if the candidate text has > 1 words, we're using the first
+  #
+  while (my $rec = $entry->fetchrow_hashref()) {
+    my $count = 0;
+    my @words;
+    $xml = $rec->{xml};
+    $xml =~ /<hi\s+rend="ital"/;
+    $t = $`;
+    if ($t) {
+      while($t =~ /inf\.\s*n\.\s*<foreign\s+lang="ar"\s*>([^<]+)<\/foreign>/g) {
+        $s = decode("UTF-8",$1);
+        my @w = split /s+/,$s;
+        push @words,$w[0];
+        $count++;
+    }
+    if ($count > 0) {
+#      print sprintf "%s : %d, %s \n",$rec->{nodeid},$count,join ",",@words;
+      $infCount += $count;
+      foreach my $word (@words) {
+        $posh->bind_param(1,$rec->{root});
+        $posh->bind_param(2,$rec->{word});
+        $posh->bind_param(3,$word);
+        $posh->bind_param(4,$rec->{nodeid});
+        if (!$dryRun) {
+          if ($posh->execute()) {
+            $writeCount++;
+            $updateCount++;
+            if ($writeCount > $commitCount) {
+              $dbh->commit;
+              $writeCount=0;
+            }
+          }
+          else {
+            $errorCount++;
+          }
+        }
+      }
+    }
+    }
+  }
+  if ($writeCount > 0) {
+    $dbh->commit();
+  }
+#  print "Find count $infCount,Updated $updateCount,errors $errorCount\n";
+}
 ###################################################################
 #   | Volume | Last Page |
 #   |--------+-----------|
@@ -2391,12 +2458,12 @@ sub getVolForPage {
 #
 ############################################################
 sub testEncoding {
-  my $entries = $dbh->selectall_arrayref("SELECT id,root,broot,word,bword,nodeId,xml from entry limit 20");
+  my $entries = $dbh->selectall_arrayref("SELECT id,root,broot,word,bword,nodeid,xml from entry limit 20");
 
   foreach my $row (@$entries) {
-    my ($id, $root,$broot,$word,$bword,$nodeId,$xml) = @$row;
+    my ($id, $root,$broot,$word,$bword,$nodeid,$xml) = @$row;
     #    print STDOUT Encode::decode('utf8', $root); ## fuck!
-    print STDOUT sprintf "%s ===== %s ========== %s\n",$nodeId,decode("utf-8",$root),decode("utf-8",$word);
+    print STDOUT sprintf "%s ===== %s ========== %s\n",$nodeid,decode("utf-8",$root),decode("utf-8",$word);
   }
 }
 #############################################################
@@ -2499,11 +2566,11 @@ sub prepareSql {
   #
   eval {
     $xrefsth = $dbh->prepare("insert into xref (datasource,word,bword,node,page,type) values (1,?,?,?,?,?)");
-    $entrysth = $dbh->prepare("insert into entry (datasource,root,broot,word,itype,nodeId,bword,xml,supplement,file,page,nodenum,perseusxml,headword) values (1,?,?,?,?,?,?,?,?,?,?,?,?,?)");
+    $entrysth = $dbh->prepare("insert into entry (datasource,root,broot,word,itype,nodeid,bword,xml,supplement,file,page,nodenum,perseusxml,headword) values (1,?,?,?,?,?,?,?,?,?,?,?,?,?)");
     $rootsth = $dbh->prepare("insert into root (datasource,word,bword,letter,bletter,supplement,quasi,alternates,page,xml) values (1,?,?,?,?,?,?,?,?,?)");
     $alternatesth = $dbh->prepare("insert into alternate (datasource,word,bword,letter,bletter,supplement,quasi,alternate) values (1,?,?,?,?,?,?,?)");
     # these are for the set-links searches
-    $lookupsth = $dbh->prepare("select id,bword,nodeId from entry where word = ? and datasource = 1");
+    $lookupsth = $dbh->prepare("select id,bword,nodeid from entry where word = ? and datasource = 1");
     # for the <orth> forms
     $orthsth = $dbh->prepare("insert into orth (datasource,entryid,form,bform,nodeid,root,broot) values (1,?,?,?,?,?,?)");
     $lastentrysth = $dbh->prepare("select max(id) from entry where datasource = 1");
@@ -2524,6 +2591,7 @@ sub postParse() {
     $diacriticsMode = 1;
     stripDiacritics();
     fix_supplement_itype();
+    partsOfSpeech();
 #    $linksMode = 1;
 #    my $linklog = File::Spec->catfile($logDir,"link.log");
 #    open($llog,">:encoding(UTF8)",$linklog);
@@ -2539,6 +2607,7 @@ GetOptions (
             "no-logs" => \$noLogging,
             "scan-arrows" => \$arrowMode,
             "scan-tags" => \$tagsMode,
+            "pos" => \$partsOfSpeechMode,
 #            "set-links" => \$linksMode,
             "letter=s" => \$linkletter,
             "log-dir=s" => \$logDir,
@@ -2678,6 +2747,9 @@ elsif ($tagsMode) {
   scanTags();
 } elsif ($arrowMode) {
   scanArrow();
+}
+elsif ($partsOfSpeechMode) {
+  partsOfSpeech();
 } else {
   print "Nothing to do here\n";
 }
