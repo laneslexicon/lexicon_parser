@@ -688,6 +688,7 @@ sub lookupWord {
 
     return ($rec->{id},$rec->{root},$rec->{nodeid},$rec->{word},$rec->{page},1);
   }
+
   $posh->bind_param(1,$word);
   $posh->execute();
   $rec = $posh->fetchrow_hashref;
@@ -700,15 +701,7 @@ sub lookupWord {
   if ($rec) {
     return ($rec->{id},$rec->{root},$rec->{nodeid},$rec->{word},$rec->{page},2);
   }
-  my $count = ($word =~ tr/\x{64b}-\x{652}\x{670}\x{671}//d);
-  my $bareword;
-  $baresth->bind_param(1,$word);
-  if ($baresth->execute()) {
-    $rec = $baresth->fetchrow_hashref;
-    if ($rec) {
-      return ($rec->{id},$rec->{root},$rec->{nodeid},$rec->{word},$rec->{page},3);
-    }
-  }
+
   my $itype = check_verbforms($root,$word);
   if ($itype != -1) {
     $itypesth->bind_param(1,$root);
@@ -720,21 +713,42 @@ sub lookupWord {
     }
   }
   return ();
+  #
+  # checking on the bareword gives 5000+ successful matches
+  # not very reliable though
+  #
+  my $count = ($word =~ tr/\x{64b}-\x{652}\x{670}\x{671}//d);
+  my $bareword;
+  $baresth->bind_param(1,$word);
+  if ($baresth->execute()) {
+    $rec = $baresth->fetchrow_hashref;
+    if ($rec) {
+      return ($rec->{id},$rec->{root},$rec->{nodeid},$rec->{word},$rec->{page},3);
+    }
+  }
+
+  return ();
 }
 sub remove_affixes {
   my $word = shift;
   my $t = $word;
+
+
+  $word =~ s/^\N{ARABIC LETTER TEH}(\N{ARABIC KASRA}|\N{ARABIC FATHA}|\N{ARABIC DAMMA})(.)\N{ARABIC SUKUN}/$2/;
+#  print STDERR "Affixes before:$t, after : $word\n";
+
   $word =~ s/\N{ARABIC SUKUN}$//;
   $word =~ s/\N{ARABIC LETTER HEH}\N{ARABIC DAMMA}\N{ARABIC LETTER MEEM}$//;
   $word =~ s/\N{ARABIC LETTER NOON}\N{ARABIC FATHA}\N{ARABIC LETTER ALEF}$//;
-  $word =~ s/\N{ARABIC LETTER TEH}(\N{ARABIC FATHA}|\N{ARABIC DAMMA}|\N{ARABIC KASRA})$//;
-  $word =~ s/^\N{ARABIC LETTER TEH}(\N{ARABIC FATHA}|\N{ARABIC DAMMA}|\N{ARABIC KASRA})//;
-  $word =~ s/^\N{ARABIC LETTER BEH}\N{ARABIC KASRA}*//;
-  $word =~ s/\N{ARABIC LETTER KAF}\N{ARABIC FATHA}*$//;
-  $word =~ s/^\N{ARABIC LETTER ALEF WITH HAMZA ABOVE}//;
+#  $word =~ s/\N{ARABIC LETTER TEH}(\N{ARABIC FATHA}|\N{ARABIC DAMMA}|\N{ARABIC KASRA})$//;
+#  $word =~ s/^\N{ARABIC LETTER TEH}(\N{ARABIC FATHA}|\N{ARABIC DAMMA}|\N{ARABIC KASRA})//;
+#  $word =~ s/^\N{ARABIC LETTER BEH}\N{ARABIC KASRA}*//;
+#  $word =~ s/\N{ARABIC LETTER KAF}\N{ARABIC FATHA}*$//;
+#  $word =~ s/^\N{ARABIC LETTER ALEF WITH HAMZA ABOVE}//;
 #  $word =~ s/\N{ARABIC LETTER YEH}$//;
-  $word =~ s/\N{ARABIC LETTER ALEF MAKSURA}$//;
+#  $word =~ s/\N{ARABIC LETTER ALEF MAKSURA}$//;
 #  print STDERR "Affixes before:$t, after : $word\n";
+  $word =~ s/\N{ARABIC SUKUN}$//;
   return $word;
 }
 ###############################################################
@@ -776,13 +790,14 @@ sub findLink {
       my $linkword = $words[$i];
       my $affixmatch = 0;
       ($linkToId,$linkToRoot,$linkToNode,$linkToWord,$linkToPage,$linkType) = lookupWord($root,$linkword);
-      if (! $linkToNode ) {
-        my $t = remove_affixes($linkword);
-        if ($t ne $linkword) {
-          $affixmatch = 1;
-          ($linkToId,$linkToRoot,$linkToNode,$linkToWord,$linkToPage,$linkType) = lookupWord($root,$t);
-        }
-    }
+       if (! $linkToNode ) {
+         my $t = remove_affixes($linkword);
+         if ($t ne $linkword) {
+           $affixmatch = 1;
+           ($linkToId,$linkToRoot,$linkToNode,$linkToWord,$linkToPage,$linkType) = lookupWord($root,$t);
+         }
+          }
+#      remove_affixes($linkword);
       if ($linkToNode) {
 #        print sprintf "[%d] Matched word %s to %s, node %s\n",$affixmatch,$linkword,decode("UTF-8",$linkToWord),$linkToNode;
       push @matches,{ node => $linkToNode,
@@ -903,6 +918,7 @@ sub setLinks {
             $node->setAttribute("nodeid",$m->{node});
             $node->setAttribute("matched",$m->{matchedword});
             $node->setAttribute("linktype",$m->{type});
+            $node->setAttribute("golink",$linkId);
             $updateRequired = 1;
             if (! $noUpdate && ($linkId != -1)) {
               # update links table
