@@ -911,13 +911,13 @@ sub setLinks {
           }
           if ($matchIx != -1) {
             my $m = $matches[$matchIx];
-            $node->setAttribute("goto",$m->{id});
-            $node->setAttribute("root",$m->{root});
-            $node->setAttribute("page",$m->{page});
-            $node->setAttribute("vol",getVolForPage($m->{page}));
-            $node->setAttribute("nodeid",$m->{node});
-            $node->setAttribute("matched",$m->{matchedword});
-            $node->setAttribute("linktype",$m->{type});
+            # $node->setAttribute("goto",$m->{id});
+            # $node->setAttribute("root",$m->{root});
+            # $node->setAttribute("page",$m->{page});
+            # $node->setAttribute("vol",getVolForPage($m->{page}));
+            # $node->setAttribute("nodeid",$m->{node});
+            # $node->setAttribute("matched",$m->{matchedword});
+            # $node->setAttribute("linktype",$m->{type});
             $node->setAttribute("golink",$linkId);
             $updateRequired = 1;
             if (! $noUpdate && ($linkId != -1)) {
