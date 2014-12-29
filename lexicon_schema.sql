@@ -21,4 +21,5 @@ CREATE INDEX 'xref_word' on xref (word asc);
 CREATE INDEX 'xref_nodenum' on xref (nodenum asc);
 CREATE INDEX 'bareword_index' on entry (bareword asc);
 CREATE INDEX page_index on entry (page asc);
+CREATE INDEX linkid_index on links (linkid asc);
 CREATE TABLE lexicon (id integer primary key, sourceid integer,description text,createversion text,createdate text,updateversion text,updatedate text,xmlversion text,dbid text);

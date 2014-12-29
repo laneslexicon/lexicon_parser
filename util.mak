@@ -60,7 +60,7 @@ lexicon:
 #
 build:
 	./version.sh
-	perl lane.pl --db lexicon.sqlite --initdb --overwrite -dir ../xml --no-context --verbose --log-dir ../logs --sql ./lexicon_schema.sql --do-all --show-progress 
+	perl lane.pl --db lexicon.sqlite --initdb --overwrite -dir ../xml --no-context --verbose --log-dir ../logs --sql ./lexicon_schema.sql --do-all --show-progress --single-word-links
 	perl links.pl --db lexicon.sqlite --log-dir ../logs --heads
 	cp lexicon.sqlite lexicon_nolinks.sqlite
 	perl links.pl --db lexicon.sqlite --log-dir ../logs --links
@@ -73,7 +73,7 @@ build:
 #
 full:
 	./version.sh
-	perl lane.pl --db lexicon.sqlite --initdb --overwrite --dir ../xml --no-context --verbose --logbase lexicon --log-dir ../logs --sql ./lexicon_schema.sql
+	perl lane.pl --db lexicon.sqlite --initdb --overwrite --dir ../xml --no-context --verbose --logbase lexicon --log-dir ../logs --sql ./lexicon_schema.sql --single-word-links
 	cp lexicon.sqlite /tmp
 	perl lane.pl --db lexicon.sqlite --xrefs
 	perl lane.pl --db lexicon.sqlite --diacritics

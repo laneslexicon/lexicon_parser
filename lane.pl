@@ -60,6 +60,7 @@ my $withPerseus = 0;
 my $testConversionMode = 0;
 my $partsOfSpeechMode = 0;
 my $noLogging = 0;
+my $enforceSingleWordLinks = 0;
 my $doAll = 1;
 my $showProgress = 0;
 my %tags;
@@ -1016,6 +1017,45 @@ sub insertTropical {
   $x .= substr($xml,$lastpos);
   return $x;
 }
+sub forceSingleWordLink {
+  my $xml = shift;
+  my $out = "";
+  my $r = '<orth type="arrow" n="Z" lang="ar">X</orth> <foreign lang="ar" TEIFORM="foreign">Y</foreign>';
+  my $c = 0;
+  my $ix = 0;
+  my $matchStart = 0;
+  my $matchLength = 0;
+  while ($xml =~  /<orth\s+type\s*=\s*"arrow"\s+lang=\s*"ar"\s*>([^<]+)<\/orth>/g) {
+    $matchStart = length $`;
+    $matchLength = length $&;
+    my $m =  $1;
+
+    $out .= substr $xml, $ix, $matchStart - $ix;
+    my @words = split /\s+/,$m;
+    my $d = scalar @words;
+    if ($d > 1) {
+      my $x = $r;
+      # we take the last one, not the first one because the ordering
+      # will be reversed in Arabic
+      my $y = pop @words;
+      $x =~ s/X/$y/;
+      $y = join " ",@words;
+      $x =~ s/Y/$y/;
+      $x =~ s/Z/$d/;
+      $out .= $x;
+      $c++;
+    }
+    else {
+      $out .= substr $xml, $matchStart,$matchLength;
+    }
+    $ix = $matchStart + $matchLength;
+  }
+  if ($ix < (length $xml)) {
+    $out .= substr $xml, $ix;
+  }
+#  print $out;
+  return ($c,$out);
+}
 sub insertLinkId {
   my $xml = shift;
   $xml =~  s/(orth\s+type\s*=\s*"arrow")/{ sprintf "$1 linkId=\"%d\"",++$linkId;}/ge;
@@ -1036,6 +1076,7 @@ sub processRoot {
   my $quasiRoot = 0;
   my $firstNodeId;
   my @alternates;
+  my $multiWordLink;
   $currentText = $node->toString;
 
   $rootLineNumber = $node->line_number();
@@ -1202,10 +1243,6 @@ sub processRoot {
       } else {
         $currentWord = $key;
       }
-      #=============================
-      # alef wasla  TODO ?
-      #=============================
-    #  $currentWord =~ s/A@/L/g;
     }
     if ( ! $id ) {
       print $plog "Parse warning 4: No ID field\n";
@@ -1265,6 +1302,12 @@ sub processRoot {
       }
       $xml = insertSenses($xml);
       $xml = insertTropical($xml);
+      if ($enforceSingleWordLinks) {
+        ($multiWordLink,$xml) = forceSingleWordLink($xml);
+        if ($multiWordLink > 0) {
+          print $plog "Multiword link count $multiWordLink\n";
+        }
+      }
       my $startLinkId = $linkId;
       $xml = insertLinkId($xml);
       #
@@ -2647,7 +2690,8 @@ GetOptions (
             "diacritics" => \$diacriticsMode,
             "with-perseus" => \$withPerseus,
             "supplement-itypes" => \$supplementItypeMode,
-            "test-conversion=s" => \$testConversionMode
+            "test-conversion=s" => \$testConversionMode,
+            "single-word-links" => \$enforceSingleWordLinks
            )
   or die("Error in command line arguments\n");
 
