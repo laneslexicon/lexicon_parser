@@ -1088,6 +1088,7 @@ sub processRoot {
   $currentRoot =~ s/^\s+//g;
   $currentRoot =~ s/\s+$//g;
   $currentRoot =~ s/&c\.*//;
+  $currentRoot =~ s/&amp;c//;
   $currentRoot =~ s/&amp;/and/g;
   $currentRoot =~ s/[\[\]():,\.]//g;
 
@@ -1118,13 +1119,20 @@ sub processRoot {
   }
   $currentRoot = shift @alternates;
   print $plog sprintf "[Root=%s][Quasi=%d][Entries=%d][Alternates=%d][TextLength=%d]\n",$currentRoot,$quasiRoot,$entryCount,scalar(@alternates),length $currentText;
+  #
+  # If the first entry is like <entryFree>See supplement</entryFree>, decrement the count since we are going
+  # to skip these. If they are in the supplement they will be loaded then.
+  #
   if ($entryCount > 0) {
     my $entry = $entries->item(0);
     $currentText = $entry->toString;
-    if ($currentText =~ /^\s*See\s+supplement\s*$/i) {
+    if ($currentText =~ /^\s*<entryFree>\s*See\s+supplement\s*/i) {
       $entryCount--;
       if ($entryCount > 0) {
         print $plog sprintf "ERROR: see supplement with entryCount > 1\n";
+      }
+      else {
+        print $plog sprintf "Supplement only entry skipped [%s][%s]\n",$currentRoot,$currentText;
       }
     }
   }
