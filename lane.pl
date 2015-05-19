@@ -662,15 +662,18 @@ sub writeEntry {
     $entryDbCount++;
     return 1;
   }
-
-  my $nodenum;
-  $nodenum = $node;
-  if ($nodenum =~ s/^n//) {
-    if ($nodenum =~ /(\d+)-(\d+)/) {
+  my $entrytype = 0;
+  my $nodenum  = 0;
+  my $n = $node;
+  if ($n =~ /^j/) {
+    $entrytype = 1;
+  }
+  elsif ($n =~ s/^n//) {
+    if ($n =~ /(\d+)-(\d+)/) {
       $nodenum = $1 + ($2 / 10);
     }
     else {
-      $nodenum = $nodenum + 0.0;
+      $nodenum = $n + 0.0;
     }
   }
   $entrysth->bind_param(1,$root);
@@ -688,6 +691,7 @@ sub writeEntry {
   # set headword to word. It will be fixed when
   # links.pl is run
   $entrysth->bind_param(13,$word);
+  $entrysth->bind_param(14,$entrytype);
   if ($entrysth->execute()) {
     $entryDbCount++;
     $writeCount++;
@@ -1405,9 +1409,13 @@ sub processRoot {
         $jumpToRoot,$nodeid,convertString($jumpToRoot,"root",$rootLineNumber);
 
       $xml .= "</entryFree>";
+      my $perseusxml;
+      if ($withPerseus) {
+        $perseusxml = $xml;
+      }
       writeEntry(convertString($jumpFromRoot,"root",$rootLineNumber),$jumpFromRoot,
                  convertString($jumpFromRoot,"word",$entryLineNumber),
-                 "",$nodeid,$i,$xml,$xml);
+                 "",$nodeid,$i,$xml,$perseusxml);
       $quasi = 0;
       $see = 0;
     }
@@ -2633,14 +2641,14 @@ sub prepareSql {
   #
   eval {
     $xrefsth = $dbh->prepare("insert into xref (datasource,word,bword,node,page,type) values (1,?,?,?,?,?)");
-    $entrysth = $dbh->prepare("insert into entry (datasource,root,broot,word,itype,nodeid,bword,xml,supplement,file,page,nodenum,perseusxml,headword) values (1,?,?,?,?,?,?,?,?,?,?,?,?,?)");
+    $entrysth = $dbh->prepare("insert into entry (datasource,root,broot,word,itype,nodeid,bword,xml,supplement,file,page,nodenum,perseusxml,headword,type) values (1,?,?,?,?,?,?,?,?,?,?,?,?,?,?)");
     $rootsth = $dbh->prepare("insert into root (datasource,word,bword,letter,bletter,supplement,quasi,alternates,page,xml) values (1,?,?,?,?,?,?,?,?,?)");
     $alternatesth = $dbh->prepare("insert into alternate (datasource,word,bword,letter,bletter,supplement,quasi,alternate) values (1,?,?,?,?,?,?,?)");
     # these are for the set-links searches
     $lookupsth = $dbh->prepare("select id,bword,nodeid from entry where word = ? and datasource = 1");
     # for the <orth> forms
     $orthsth = $dbh->prepare("insert into orth (datasource,entryid,form,bform,nodeid,root,broot) values (1,?,?,?,?,?,?)");
-    $lastentrysth = $dbh->prepare("select max(id) from entry where datasource = 1");
+    $lastentrysth = $dbh->prepare("select max(id) from entry where datasource = 1 and type = 0");
     $linksth = $dbh->prepare("insert into links (datasource,linkid,root,word,fromnode,link) values (1,?,?,?,?,?)");
   };
   if ($@) {
