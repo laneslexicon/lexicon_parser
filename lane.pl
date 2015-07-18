@@ -914,7 +914,7 @@ sub convertNode {
       my $t = $origAttr->getValue();
       if ($t =~ /Bu|Ba|Bi/) {
         my $textNode = $node->getFirstChild;
-        if ($textNode->nodeType == XML_TEXT_NODE) {
+        if ($textNode && ($textNode->nodeType == XML_TEXT_NODE)) {
           my $text = $textNode->nodeValue;
           if ($text && ($text =~ /\d/)) {
             $debug && print $dlog "$currentFile : $currentNodeId :$currentRoot : $t : $text inflection marker";
