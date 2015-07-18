@@ -627,7 +627,10 @@ sub gen_verbs {
   my $teh = chr(0x62a);
   my $noon = chr(0x646);
   my $seen = chr(0x633);
-
+  # TODO
+  #
+  # form VIII changes for emphatics
+  #
   push @forms,$root;
   push @forms, sprintf "%s%s%s%s",$c1,$c2,$shadda,$c3;                # II
   push @forms, sprintf "%s%s%s%s",$c1,$c2,$alef,$c3;                  # III
