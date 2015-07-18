@@ -41,7 +41,7 @@ testentry:
 # and it will look for <name>.xml and output <name>.sqlite
 test:
 	./version.sh
-	perl lane.pl --db ${xml}.sqlite --initdb --overwrite --xml ./test/${xml}.xml --no-context --logbase test --sql ./lexicon_schema.sql
+	perl lane.pl --db ${xml}.sqlite --initdb --overwrite --xml ./test/${xml}.xml --no-context --sql ./lexicon_schema.sql
 #
 # use this test a single Perseus file
 # make -f util.mak xml=s0 onefile
@@ -60,7 +60,7 @@ lexicon:
 #
 build:
 	./version.sh
-	perl lane.pl --db lexicon.sqlite --initdb --overwrite -dir ../xml --no-context --verbose --log-dir ../logs --sql ./lexicon_schema.sql --do-all --show-progress --single-word-links
+	perl lane.pl --db lexicon.sqlite --initdb --overwrite -dir ../xml --no-context --verbose --log-dir ../logs --sql ./lexicon_schema.sql --do-all --show-progress --single-word-links --with-perseus
 	perl links.pl --db lexicon.sqlite --log-dir ../logs --heads
 	cp lexicon.sqlite lexicon_nolinks.sqlite
 	perl links.pl --db lexicon.sqlite --log-dir ../logs --links
