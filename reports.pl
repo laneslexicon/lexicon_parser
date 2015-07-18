@@ -12,6 +12,7 @@ use Cwd;
 use Encode;
 use XML::LibXML;
 use Getopt::Long;
+use utf8;
 my $dbh;
 my $logDir;
 my $dbname;
@@ -450,7 +451,7 @@ sub get_dqs {
   my $dqh = shift;
   my $sth = shift;
   my $parser = XML::LibXML->new;
-  $parser->set_options("line_numbers" => "parser");
+  $parser->set_options("line_numbers" => "parser","suppress_errors" => 1);
   #  my $parser = new XML::DOM::Parser;
   my $doc = $parser->parse_file($f);
   $doc->setEncoding("UTF-8");
@@ -930,10 +931,6 @@ GetOptions (
   or die("Error in command line arguments");
 
 $logDir = getLogDirectory($logDir,$dbid);
-if (! $dbid ) {
-  print STDERR "No run ID specified, exiting\n";
-  exit 1;
-}
 if ($doAll) {
  $doSummary=1;
  $doConversionErrors=1;
@@ -944,6 +941,10 @@ if ($doAll) {
 }
 if ($doDoubleQuestions && $xmlDir) {
   check_double_questions($xmlDir,$dbname);
+}
+if (! $dbid ) {
+  print STDERR "No run ID specified, exiting\n";
+  exit 1;
 }
 summaryStats($logDir,$dbid)     unless ! $doSummary;
 convErrors($logDir,$dbid)       unless ! $doConversionErrors;
