@@ -2598,8 +2598,10 @@ sub writeSource {
   }
   my $version = `cat SCRIPTVERSION`;
   $version =~ s/\n//g;
+  $version =~ s/\s//g;
   my $xmlversion = `cat XMLVERSION`;
   $xmlversion =~ s/\n//g;
+  $xmlversion =~ s/\s//g;
   # create new entry
   if ($mode == 1) {
     eval {
