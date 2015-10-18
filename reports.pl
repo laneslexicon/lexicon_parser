@@ -155,6 +155,9 @@ sub getLogDirectory {
   my $base = shift;
   my $dbid = shift;
 
+  if (! $dbid ) {
+  	$dbid = "";
+  }
   # check the base exists or can be created
   if (! $base ) {
       $base = dirname(tempdir());
@@ -395,7 +398,9 @@ $rundate,$dbId,$%
    @<<<<<<<<<<@<<<<<<<<<<<<<<<@<<<<<<<<<<<<<<<@<<<<<<<<<<<@<<<<<<<<<<<<<<<@<<<<<<<<<<@<<<<<
 $filename,$type2,$type3,$type4,$type5,$type6,$typeother
 .
-  open $outf, ">:encoding(UTF8)", catfile($logDir,"error_summary.txt");
+
+  my $reportname = catfile($logDir,"error_summary.txt");
+  open $outf, ">:encoding(UTF8)", $reportname;
   $outf->format_name("SUMMARY");
   $outf->format_top_name("SUMMARY_TOP");
   if ($logdir =~ /\/$/) {
@@ -441,7 +446,8 @@ $filename,$type2,$type3,$type4,$type5,$type6,$typeother
 
    }
 
- }
+  }
+  print STDERR "Created summary report: $reportname\n";
 }
 #############################################
 # prints out double question marks
@@ -574,8 +580,9 @@ sub check_double_questions {
       }
       print $dqh "\n";
       get_dqs($f,$dqh,$sth);
-  }
-   close $dqh;
+    }
+  print STDERR "Created $filename\n";
+  close $dqh;
 }
 ######################################
 # check all id="n<nnnn>" are loaded
@@ -768,6 +775,7 @@ $id,            $letter,        $word, $bword ,                  $vol,$page,$xml
   $fh->close;
   $csv->close;
   $tex->close;
+  print STDERR sprintf "Created long roots report:%s\n",catfile($logDir,"long_roots.txt");
 }
 sub tex_escape {
   my $word = shift;
