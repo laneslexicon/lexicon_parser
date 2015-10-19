@@ -141,75 +141,82 @@ sub dump_tree {
 }
 sub checkForward {
   my $node = shift;
-
+  my $uk = shift;
   my @orths;
   my $c = 0;
   my $nodeCount = 0;
   my $n = $node->nextSibling;
+  my $s = "";
   while ($n) {
     if ($n->nodeType == XML_TEXT_NODE) {
       my $t = $n->textContent;
-      $t =~ s/↓/ /g;
-      if ($t !~ /^\s+$/) {
-        return  ($c,@orths);
+      if ($t =~ /[a-zA-Z]/) {
+        return { 'size' => $c,'nodes' => $nodeCount, 'types' => $s};
       }
+      $s .= "T";
     }
     if ($n->nodeType == XML_ELEMENT_NODE) {
       if ($n->nodeName !~ /foreign|orth/) {
-        return ($c,@orths);
+        return { 'size' => $c,'nodes' => $nodeCount, 'types' => $s};
       }
       if ($n->getAttribute("lang") !~ /ar/) {
-        return ($c,@orths);
+        return { 'size' => $c,'nodes' => $nodeCount, 'types' => $s};
       }
+      $s .= "O" if $n->nodeName eq "orth";
+      $s .= "F" if $n->nodeName eq "foreign";
       $nodeCount++;
       if (($n->nodeName eq "orth") && ($n->getAttribute("type") eq "arrow")) {
-        push @orths,$n->unique_key;
+        $uk->{$n->unique_key} = 1;
       }
     }
     $c++;
     $n = $n->nextSibling;
     if ($c > 100) {
-      return ($c,@orths);
+      return { 'size' => $c,'nodes' => $nodeCount, 'types' => $s};
     }
   }
-    return ($c,@orths);
-#   return { 'size' => $c,'nodes' => $nodeCount, 'ukeys' => @orths);
+   return { 'size' => $c,'nodes' => $nodeCount, 'types' => $s};
 }
 sub checkBackward {
   my $node = shift;
-
+  my $uk = shift;
   my $c = 0;
   my @orths;
+  my $nodeCount = 0;
+  my $s = "";
   my $n = $node->previousSibling;
   while ($n) {
     if ($n->nodeType == XML_TEXT_NODE) {
       my $t = $n->textContent;
-      $t =~ s/↓/ /g;
-      if ($t !~ /^\s+$/) {
-        return  ($c,@orths);
+      if ($t =~ /[a-zA-Z]/) {
+        return { 'size' => $c,'nodes' => $nodeCount, 'types' => $s};
       }
+      $s .= "T";
     }
     if ($n->nodeType == XML_ELEMENT_NODE) {
       if ($n->nodeName !~ /foreign|orth/) {
-        return ($c,@orths);
+        return { 'size' => $c,'nodes' => $nodeCount, 'types' => $s};
       }
       if ($n->getAttribute("lang") !~ /ar/) {
-        return ($c,@orths);
+        return { 'size' => $c,'nodes' => $nodeCount, 'types' => $s};
       }
+      $s .= "O" if $n->nodeName eq "orth";
+      $s .= "F" if $n->nodeName eq "foreign";
+      $nodeCount++;
       if (($n->nodeName eq "orth") && ($n->getAttribute("type") eq "arrow")) {
-        push @orths,$n->unique_key;
+        $uk->{$n->unique_key} = 1;
       }
     }
     $c++;
     $n = $n->previousSibling;
     if ($c > 100) {
-      return ($c,@orths);
+      return { 'size' => $c,'nodes' => $nodeCount, 'types' => $s};
     }
   }
-  return ($c,@orths);
+  return { 'size' => $c,'nodes' => $nodeCount, 'types' => $s };
 }
 #
-#
+# get text for the supplied number of siblings before and after the supplied node
 #
 sub getText {
   my $node = shift;
@@ -232,7 +239,7 @@ sub getText {
   while($y > 0) {
     push @t, $n->textContent;
     $y--;
-    $n = $node->nextSibling;
+    $n = $n->nextSibling;
   }
   my $str = join ' ',@t;
   $str =~ s/\n//g;
@@ -260,20 +267,27 @@ sub perseus {
   foreach my $orth (@orths) {
     #    my $p = $orth->find("preceding-sibling::*");
     #    my $f = $orth->find("following-sibling::*");
-    my $nodesBefore;
-    my $nodesAfter;
-    my @u;
-    ($nodesBefore,@u) = checkBackward($orth);
-    foreach my $k (@u) {
-      $processed{$k} = 1;
-    }
-    ($nodesAfter,@u) = checkForward($orth);
-    foreach my $k (@u) {
-      $processed{$k} = 1;
-    }
+    my $nb;
+    my $na;
+    my $eNodes = 0;
+    my $v;
+
+    my $v = checkBackward($orth,\%processed);
+    $nb = $v->{size};
+    $eNodes += $v->{nodes};
+
+    my $w = checkForward($orth,\%processed);
+    $na = $w->{size};
+    $eNodes += $w->{nodes};
+
     if (! exists $processed{$orth->unique_key}) {
-      if (($nodesBefore > 0) || ($nodesAfter > 0)) {
-        $t .= sprintf "[%s] %d [%d][%s][%d]-->[%s]\n",$node,$i,$nodesBefore,$orth->textContent,$nodesAfter,getText($orth,$nodesBefore,$nodesAfter);
+#      if (($nb > 0) || ($na > 0)) {
+      if ($eNodes > 0) {
+        $t .= sprintf "[%s] %d [%d][%s] [%s][%d][%s]-->[%s]\n",$node,$i,$nb,
+          $v->{types},
+          $orth->textContent,
+          $na,$w->{types},
+          getText($orth,$nb,$na);
         $ret++;
       }
     }
@@ -290,8 +304,8 @@ sub perseus {
 
 openDb("lexicon1.sqlite");
 
-my $sth = $dbh->prepare("select root,broot,page,word,bword,nodeid,perseusxml from entry order by nodenum asc");
-#my $sth = $dbh->prepare("select nodeid,perseusxml from entry where nodeid=\"n3243\" order by nodenum asc");
+#my $sth = $dbh->prepare("select root,broot,page,word,bword,nodeid,perseusxml from entry order by nodenum asc");
+my $sth = $dbh->prepare("select root,broot,page,word,bword,nodeid,perseusxml from entry where nodeid=\"n9430\" order by nodenum asc");
 $sth->execute();
 my ($root,$broot,$page,$word,$bword);
 my $node;
