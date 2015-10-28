@@ -26,6 +26,7 @@ my $showxml=0;
 my $maxerrors=0;
 my $fixup=0;
 my $dryrun=0;
+my $showall=0;
 use List::Util qw( max );
 
 sub max_depth {
@@ -262,16 +263,29 @@ sub perseus {
       my $nodesbefore = checkSiblings($orth,-1);    ## siblings before
       my $nodesafter = checkSiblings($orth,1);     ## siblings after
       $fixed = " ";
-      if (length($nodesbefore->{types}) > 0) {
-        if ($fixup) {
-          fix_link($orth,length($nodesbefore->{types}),length($nodesafter->{types}));
-          $fixed = "x";
-        }
-      }
+      $wordcount = scalar(split '\s+',$orth->textContent);
+      # treat before and after entries as 'errors'
       if ((length($nodesbefore->{types}) > 0) || (length($nodesafter->{types}) > 0 )) {
         $errs++;
       }
-      $wordcount = scalar(split '\s+',$orth->textContent);
+      # a multiword link where the xref is to the last Arabic word
+      if (($wordcount > 1) && (length($nodesbefore->{types}) == 0) && (length($nodesafter->{types}) == 0)) {
+      }
+
+      if (length($nodesbefore->{types}) > 0) {
+        if ($fixup) {
+          if ($nodesbefore->{types} eq "TF") {
+            fix_link_type1($orth,length($nodesbefore->{types}),length($nodesafter->{types}));
+            $fixed = "x";
+          }
+          if (($nodesbefore->{types} eq "TFTF") || ($nodesbefore->{types} eq "TFTFT")) {
+            fix_link_type2($orth,length($nodesbefore->{types}),length($nodesafter->{types}));
+            $fixed = "x";
+          }
+        }
+      }
+
+
       $txt .= sprintf "[%s][%02d] %2d %10s B [$rtle%40s$pop] A [%s]\n",$fixed,$wordcount,$i,
           (sprintf "[%s]",$nodesbefore->{types}),
           $orth->textContent,
@@ -287,7 +301,19 @@ sub perseus {
   return (scalar @orths,$errs,$txt,$newxml);
 
 }
-sub fix_link {
+#    Nodes before:
+#    (1)   TFTO    =>  FO
+#    (2)   TFTFO   =>  FOF   two foreign before the orth means that a new line
+#    (3)
+#
+#
+#
+#
+#
+#
+#
+#
+sub fix_link_type1 {
   my $orth = shift;
   my $nodesbefore = shift;
   my $nodesafter = shift;
@@ -296,8 +322,6 @@ sub fix_link {
   my @nodes;
   $node = $orth->previousSibling;
   my $beforetext = "";
- # print "\nbefore\n" . $orth->toString . "\n";
-
 
  $ix = $nodesbefore;
 
@@ -340,18 +364,71 @@ sub fix_link {
       }
     }
   }
-  if (0) {
-  if (scalar(@words) > 0) {
-#    $orth->setAttribute("linkword",pop @words);
-#    $orth->setAttribute("linkindex",scalar(@words));
-      # print STDERR "\n" . $words[$#words] . "\n";
-
-  }
-}
   $orth->appendText($beforetext);
+}
+#
+#  TFTFO  which should be ones where the arabic preceding the link arrow has
+#  a line break
+#
+#  should be FOF
+#
+sub fix_link_type2 {
+  my $orth = shift;
+  my $nodesbefore = shift;
+  my $nodesafter = shift;
+  my $node;
+  my $ix;
+  my @nodes;
 
-  #print "after\n" . $orth->toString;
-#  print "\n----------------------\n";
+  my $beforetext = "";
+  my $appendtext = "";
+  my $nodetype;
+  $ix = $nodesbefore;
+
+
+  $node = $orth->previousSibling;
+  if ($nodesbefore =~ /T$/) {
+    push @nodes, $node;
+    $node = $orth->previousSibling;
+  }
+  # we should pointing at the foreign before the orth
+  if (($node->nodeType == XML_ELEMENT_NODE) && ($node->nodeName eq "foreign")) {
+    $appendtext .= " ";
+    $appendtext .= $node->textContent;
+  }
+  push @nodes, $node;
+  # move back skipping the expected text node
+  $node = $node->previousSibling;
+  if ($node->nodeType == XML_TEXT_NODE) {
+    push @nodes, $node;
+    $node = $node->previousSibling;
+  }
+  $beforetext = $node->textContent;
+  push @nodes, $node;
+
+  # delete the nodes before
+  foreach $node (@nodes) {
+    my $p = $node->parentNode;
+    $p->removeChild($node);
+  }
+  my @words = split '\s+',$orth->textContent;
+
+  $orth->setAttribute("subtype","multiwordlink");
+  my $textnode = $orth->firstChild;
+  if ($textnode->nodeType == XML_TEXT_NODE) {
+    my @words = split '\s+',$textnode->textContent;
+    if (scalar(@words) > 0) {
+      # print STDERR "\n" . $words[$#words] . "\n";
+      my $linkword = pop @words;
+      push @words,$appendtext;
+      my $newtext = XML::LibXML::Text->new(sprintf "%s ", join ' ',@words );
+      $orth->replaceChild($newtext,$textnode);
+      my $linknode = $orth->addNewChild("","ref");
+      $linknode->appendText("$linkword");
+      $linknode->setAttribute("render","linkword");
+    }
+  }
+  $orth->appendText($beforetext);
 }
 sub process_file {
   my $filename = shift;
