@@ -270,6 +270,8 @@ sub perseus {
       }
       # a multiword link where the xref is to the last Arabic word
       if (($wordcount > 1) && (length($nodesbefore->{types}) == 0) && (length($nodesafter->{types}) == 0)) {
+        fix_link_type3($orth);
+            $fixed = "m";
       }
 
       if (length($nodesbefore->{types}) > 0) {
@@ -360,7 +362,7 @@ sub fix_link_type1 {
       $orth->replaceChild($newtext,$textnode);
         my $linknode = $orth->addNewChild("","ref");
         $linknode->appendText("$linkword");
-        $linknode->setAttribute("render","linkword");
+        $linknode->setAttribute("render","linkwordwitharrow");
       }
     }
   }
@@ -425,10 +427,47 @@ sub fix_link_type2 {
       $orth->replaceChild($newtext,$textnode);
       my $linknode = $orth->addNewChild("","ref");
       $linknode->appendText("$linkword");
-      $linknode->setAttribute("render","linkword");
+      $linknode->setAttribute("render","linkwordwitharrow");
     }
   }
   $orth->appendText($beforetext);
+}
+######################################################
+# For plain multiword links with no befores or afters
+######################################################
+sub fix_link_type3 {
+  my $orth = shift;
+
+  my $hasArrow = 0;
+  my $p = $orth->previousSibling;
+  if ($p->textContent =~ /↓/) {
+    $hasArrow = 1;
+  }
+  my $textnode = $orth->firstChild;
+  if ($textnode->nodeType != XML_TEXT_NODE) {
+    return;
+  }
+
+  $orth->setAttribute("subtype","multiwordlink");
+  my @words = split '\s+',$textnode->textContent;
+  my $linkword = pop @words;
+
+  $orth->removeChild($textnode);
+
+
+
+  my $newtext = XML::LibXML::Text->new(sprintf "%s ", join ' ',@words );
+  $orth->appendText($newtext);
+
+  my $linknode = $orth->addNewChild("","ref");
+  $linknode->appendText("$linkword");
+  if ($hasArrow) {
+    $linknode->setAttribute("render","linkword");
+  }
+  else {
+    $linknode->setAttribute("render","linkwordwitharrow");
+  }
+
 }
 sub process_file {
   my $filename = shift;
