@@ -707,6 +707,7 @@ sub writeEntry {
   }
   return $ret;
 }
+# the orth table is no longer used
 sub writeOrths {
   my $node = shift;
   my $root = shift;
@@ -1330,14 +1331,14 @@ sub processRoot {
                           convertString($currentWord,"word",$entryLineNumber),
                           $currentItype,$currentNodeId,$currentWord,$xml,$perseusxml);
       #
+      # TODO remove
       #
-      #
-      if ($ok && ($#currentForms != -1)) {
-        writeOrths($currentNodeId,
-                   convertString($currentRoot,"root",$rootLineNumber),
-                   $currentRoot,
-                   @currentForms);
-      }
+#      if ($ok && ($#currentForms != -1)) {
+#        writeOrths($currentNodeId,
+#                   convertString($currentRoot,"root",$rootLineNumber),
+#                   $currentRoot,
+#                   @currentForms);
+#      }
       #
       # write link records that will be updated when links.pl is run
       #
@@ -2650,7 +2651,7 @@ sub prepareSql {
     # these are for the set-links searches
     $lookupsth = $dbh->prepare("select id,bword,nodeid from entry where word = ? and datasource = 1");
     # for the <orth> forms
-    $orthsth = $dbh->prepare("insert into orth (datasource,entryid,form,bform,nodeid,root,broot) values (1,?,?,?,?,?,?)");
+#    $orthsth = $dbh->prepare("insert into orth (datasource,entryid,form,bform,nodeid,root,broot) values (1,?,?,?,?,?,?)");
     $lastentrysth = $dbh->prepare("select max(id) from entry where datasource = 1 and type = 0");
     $linksth = $dbh->prepare("insert into links (datasource,linkid,root,word,fromnode,link) values (1,?,?,?,?,?)");
   };
