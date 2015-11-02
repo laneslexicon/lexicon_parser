@@ -60,7 +60,7 @@ my $withPerseus = 0;
 my $testConversionMode = 0;
 my $partsOfSpeechMode = 0;
 my $noLogging = 0;
-my $enforceSingleWordLinks = 0;
+#my $enforceSingleWordLinks = 0;
 my $doAll = 1;
 my $showProgress = 0;
 my %tags;
@@ -1314,12 +1314,13 @@ sub processRoot {
       }
       $xml = insertSenses($xml);
       $xml = insertTropical($xml);
-      if ($enforceSingleWordLinks) {
-        ($multiWordLink,$xml) = forceSingleWordLink($xml);
-        if ($multiWordLink > 0) {
-          print $plog "Multiword link count $multiWordLink\n";
-        }
-      }
+      # this has moved to the links handling code
+#      if ($enforceSingleWordLinks) {
+#        ($multiWordLink,$xml) = forceSingleWordLink($xml);
+#        if ($multiWordLink > 0) {
+#          print $plog "Multiword link count $multiWordLink\n";
+#        }
+#      }
       my $startLinkId = $linkId;
       $xml = insertLinkId($xml);
       #
@@ -2708,8 +2709,8 @@ GetOptions (
             "diacritics" => \$diacriticsMode,
             "with-perseus" => \$withPerseus,
             "supplement-itypes" => \$supplementItypeMode,
-            "test-conversion=s" => \$testConversionMode,
-            "single-word-links" => \$enforceSingleWordLinks
+            "test-conversion=s" => \$testConversionMode
+#            "single-word-links" => \$enforceSingleWordLinks
            )
   or die("Error in command line arguments\n");
 
