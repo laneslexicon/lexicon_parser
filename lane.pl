@@ -46,7 +46,6 @@ my $suppressFixups = 0;
 my $suppressContext = 0;
 my $doTest = "";
 my $logDir;
-my $linksMode = 0;
 my $convertMode = 0;
 my $tagsMode = 0;
 my $arrowMode = 0;
@@ -626,8 +625,6 @@ sub traverseNode {
         checkArrow($node);
       } elsif ($tagsMode) {
         analyzeTags($node);
-      } elsif ($linksMode) {
-        setLinksForNode($node);
       } elsif ($convertMode) {
         convertNode($node);
       } else {
@@ -1021,45 +1018,6 @@ sub insertTropical {
   }
   $x .= substr($xml,$lastpos);
   return $x;
-}
-sub forceSingleWordLink {
-  my $xml = shift;
-  my $out = "";
-  my $r = '<orth type="arrow" n="Z" lang="ar">X</orth> <foreign lang="ar" TEIFORM="foreign">Y</foreign>';
-  my $c = 0;
-  my $ix = 0;
-  my $matchStart = 0;
-  my $matchLength = 0;
-  while ($xml =~  /<orth\s+type\s*=\s*"arrow"\s+lang=\s*"ar"\s*>([^<]+)<\/orth>/g) {
-    $matchStart = length $`;
-    $matchLength = length $&;
-    my $m =  $1;
-
-    $out .= substr $xml, $ix, $matchStart - $ix;
-    my @words = split /\s+/,$m;
-    my $d = scalar @words;
-    if ($d > 1) {
-      my $x = $r;
-      # we take the last one, not the first one because the ordering
-      # will be reversed in Arabic
-      my $y = pop @words;
-      $x =~ s/X/$y/;
-      $y = join " ",@words;
-      $x =~ s/Y/$y/;
-      $x =~ s/Z/$d/;
-      $out .= $x;
-      $c++;
-    }
-    else {
-      $out .= substr $xml, $matchStart,$matchLength;
-    }
-    $ix = $matchStart + $matchLength;
-  }
-  if ($ix < (length $xml)) {
-    $out .= substr $xml, $ix;
-  }
-#  print $out;
-  return ($c,$out);
 }
 sub insertLinkId {
   my $xml = shift;
@@ -1880,7 +1838,7 @@ sub scanTags {
   printStatsCsv();
 }
 ################################################################
-#
+# TODO remove this (orth code does the same)
 # print details of <orth type="arrow">
 #
 ################################################################
@@ -1928,7 +1886,7 @@ sub checkArrow {
 #
 #  this just prints detail of nodes with <orth type="arrow">
 #  was a testing function and is no longer needed
-#
+#  TODO Remove
 ############################################################
 sub scanArrow {
   my $sth;
@@ -1951,261 +1909,6 @@ sub scanArrow {
     $currentBWord = $bword;
     traverseNode($docroot);
   }
-}
-################################################################
-#
-# takes entries <tagname lang="ar">abcd</tagname> and looks up
-# 'abcd' in entry table. If found, it adds attributes to the
-# node and adds an entry to @links which is processed by the calling
-# routine to decide whether to update the db.
-#
-# For entries with "type" = "arrow", if it can't find the linked to
-# item, it writes out an unresolved link record.
-#
-################################################################
-sub setLinksForNode {
-  my $node = shift;
-  my $nodeName;
-  my $parentName;
-  my $skip = 0;
-  my $isArrow = 0;
-  my $bareWordMatch = 0;
-  $nodeName =  $node->nodeName;
-  my $parentNode = $node->getParentNode;
-
-  # going to skip entyfree and any child nodes of <form>
-  if ($nodeName eq "entryfree") {
-    $skip = 1;
-  }
-  while ($parentNode && ! $skip) {
-    $parentName = $parentNode->nodeName;
-    if ($parentName eq "form") {
-      $skip = 1;
-    }
-    $parentNode = $parentNode->getParentNode;
-  }
-  #  print STDERR sprintf "[%d]<%s><%s>\n",$skip,$parentName,$nodeName;
-  return unless ! $skip;
-  #  print "$nodeName\n";
-  my $attr = $node->getAttributeNode("lang");
-  if (! $attr || ($attr->getValue ne "ar")) {
-    return;
-  }
-  if ($nodeName eq "orth") {
-    my $attr = $node->getAttributeNode("type");
-    if ($attr && ($attr->getValue eq "arrow")) {
-      $isArrow = 1;
-    }
-  }
-  #
-  #
-  #
-  if ($nodeName eq "foreign") {
-    my $attr = $node->getAttributeNode("jumptoroot");
-    if ($attr) {
-      return;
-    }
-  }
-  #
-  #  can it have multiple text nodes ?
-  #
-  if ($node->hasChildNodes) {
-    my $textNode = $node->getFirstChild;
-    if ($textNode->nodeType == XML_TEXT_NODE) {
-      my $text = $textNode->nodeValue;
-      # lookup the word
-      #   see if there is an 'entry' record for this word
-      #   setting $id to the record num of the matched entry
-      #
-      $lookupsth->bind_param(1,$text);
-      $lookupsth->execute();
-      #        print STDERR "Lookup:[$text]\n";
-      my ($id,$bword,$nodeid) = $lookupsth->fetchrow_array;
-      if (!$id) {
-        #
-        # some have dammatan forms so check for these
-        #
-        #        $dlookupsth->bind_param(1,$text);
-
-        if ($text =~ /^[\p{InArabic}\p{IsSpace}\p{IsPunct}]+$/) {
-          $lookupsth->bind_param(1,$text . chr(0x64c));
-        } else {
-          $lookupsth->bind_param(1,$text . "N");
-        }
-        if ($lookupsth->execute()) {
-          ($id,$bword,$nodeid) = $lookupsth->fetchrow_array;
-          #          if ($id) {
-          #            print STDERR "Found at [$id][$bword][$nodeid]\n";
-          #          }
-          #        }
-        }
-      }
-      if (! $id ) {
-        #
-        # it could be a bare form without diacritics
-        #
-        my $word = $text;
-        my $count = ($word =~ tr/\x{64b}-\x{652}\x{670}\x{671}//d);
-        my $bareword;
-        $baresth->bind_param(1,$word);
-        if ($baresth->execute()) {
-          ($id,$word,$bword,$bareword,$nodeid) = $baresth->fetchrow_array;
-          if ($id) {
-#            print STDERR sprintf "[%d] bareword match %s, $nodeid\n",$isArrow,decode("UTF-8",$word);
-            $bareWordMatch = 1;
-          }
-        }
-      }
-      if ($isArrow) {
-        $arrowsCount++;
-        if (! $id ) {
-          $unresolvedArrows++;
-          push @links, { type => 1,word => $text , id => $unresolvedArrows};
-
-        } else {
-
-        }
-      }
-      #
-      #  check the record we're linking to is not this one
-      #
-      if ($id && ($id != $currentRecordId)) {
-        if ($nodeid) {
-          $linkCount++;
-          $node->setAttribute("goto",$id);
-          $node->setAttribute("nodeid",$nodeid);
-          $node->setAttribute("linkid",$linkCount);
-          $node->setAttribute("bareword",$bareWordMatch);
-          $updateNode = 1;
-          push @links, { type => 0,id => $id,node => $nodeid,bword => $bword,word => $text,linkid => $linkCount,bareword => $bareWordMatch};
-        } else {
-          print STDERR "Record id:$id has no nodeid\n";
-        }
-      }
-    }
-  }
-}
-#############################################################
-#
-# NOTE: All links and headword code has been moved to
-# a separate file (links.pl)
-#
-# can optionally just do links for letter supplied as param
-# otherwise it will do all
-############################################################
-sub setLinks {
-  my $letter = shift;
-  my $parser = XML::LibXML->new;
-    $parser->set_options("line_numbers" => "parser");
-
-  #  my $parser = new XML::DOM::Parser;
-
-  print STDERR "Updating links\n" unless ! $showProgress;
-  my @letters;
-  my @roots;
-  if ($letter) {
-    if ($letter =~ /,/) {
-    } else {
-      push @letters,$letter;
-    }
-  } else {
-    my $x = $dbh->selectall_arrayref("select distinct bletter from root where datasource = 1");
-    foreach my $y (@$x) {
-      push @letters,$y->[0];
-    }
-  }
-  # my $sth = $dbh->prepare("select broot from root where bletter = ?");
-  # $sth->bind_param(1,$letter);
-  # $sth->execute();
-  # while (my @r = $sth->fetchrow_arrow()) {
-  #   push @roots, $r[0];
-  # }
-  my $lettersth = $dbh->prepare("select bword from root where bletter = ? and datasource = 1");
-  my $entrysth = $dbh->prepare("select id,root,broot,word,bword,nodeid,xml,page from entry where broot = ? and datasource = 1");
-  my $updatesth = $dbh->prepare('update entry set xml = ? where id = ?');
-  $baresth = $dbh->prepare("select id,word,bword,bareword,nodeid from entry where bareword = ? and datasource = 1");
-
-  my $lastentrysth;
-
-  foreach $letter (@letters) {
-    #    print STDERR "Doing letter [$letter]\n";
-    $writeCount = 0;
-    $lettersth->bind_param(1,$letter);
-    $lettersth->execute();
-    # iterate through the roots for this letter
-    while (@roots = $lettersth->fetchrow_array()) {
-      #      print STDERR "Doing root:" . $roots[0] . "\n";
-      $entrysth->bind_param(1,$roots[0]);
-      $entrysth->execute();
-      # iterate through the entries for this root
-      my @entry;
-      while (@entry = $entrysth->fetchrow_array()) {
-        my ($id, $root,$broot,$word,$bword,$nodeid,$xml,$page) = @entry;
-        #        print STDERR "Doing word $bword\n";
-        #        if (0) {
-        my $doc = $parser->parse_string($xml);
-        $doc->setEncoding("UTF-8");
-        my $nodes = $doc->getElementsByTagName ("entryFree");
-        my $n = $nodes->size();
-        $currentRecordId = $id;
-        for (my $i = 0; $i < $n; $i++) {
-          $#links = -1;         # clear old links
-          my $node = $nodes->item($i);
-          $updateNode = 0;
-          $currentNodeId = $nodeid;
-          $currentWord = $word;
-          #
-          # in links mode this wil call
-          # setLinksForNode
-          #
-          traverseNode($node);
-          #  REMOVE THE NEXT LINE WHEN DONE
-          #$updateNode = 0;
-          if ($updateNode) {
-            $xml = $node->toString;
-            $updatesth->bind_param(1,$xml);
-            $updatesth->bind_param(2,$id);
-            $updatesth->execute();
-            $writeCount++;
-            if ($writeCount > $commitCount) {
-              $dbh->commit();
-              #           $dbh->begin_work();
-              $writeCount = 0;
-            }
-          }
-          if (scalar(@links) > 0) {
-            print $llog sprintf "Node:[%d][%s][%s][%s]\n",$id,$nodeid,$word,$bword;
-            foreach my $link (@links) {
-              if ($link->{type} == 0) {
-                print $llog sprintf "[%d]    [%s]  to  [%d][%s] [%s][%d]\n",$link->{linkid},$link->{word},$link->{id},$link->{node},$link->{bword},$link->{bareword};
-              } else {
-                my $w = $link->{word}; # this should be arabic unless we have run with --no-convert
-                my $aw = "";
-                if ($w =~ /^[\p{InArabic}\p{IsSpace}\p{IsPunct}]+$/) {
-                  $aw = convertString($w,"link");
-                }
-
-                eval {
-                print $llog sprintf "[unresolved arrow %d ] %s, %s  , V%d/%d\n",$link->{id},$w,$aw,getVolForPage($page),$page;
-                };
-                if ($@) {
-                  print $@ . "\n";
-                  print "w = $w, aw = $aw\n";
-                }
-              }
-            }
-          }
-        }                       # end of process entryfree
-        #        }                       # end of process entries for root
-      }
-    }
-  }
-  if ($writeCount > 0) {
-    $dbh->commit();
-    #    $dbh->begin_work();
-    $writeCount = 0;
-  }
-  print STDERR "Links count $arrowsCount, unresolved : $unresolvedArrows\n";
 }
 #
 # update the entry for each xref record, store the associated root & entry word (ie the entry
@@ -2671,7 +2374,6 @@ sub postParse() {
     stripDiacritics();
     fix_supplement_itype();
     partsOfSpeech();
-#    $linksMode = 1;
 #    my $linklog = File::Spec->catfile($logDir,"link.log");
 #    open($llog,">:encoding(UTF8)",$linklog);
 #    setLinks();#$linkletter) ;
@@ -2687,7 +2389,6 @@ GetOptions (
             "scan-arrows" => \$arrowMode,
             "scan-tags" => \$tagsMode,
             "pos" => \$partsOfSpeechMode,
-#            "set-links" => \$linksMode,
             "letter=s" => \$linkletter,
             "log-dir=s" => \$logDir,
             "show-progress" => \$showProgress,
