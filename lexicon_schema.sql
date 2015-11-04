@@ -2,7 +2,7 @@ CREATE TABLE root (id integer primary key,datasource integer,word text,bword tex
 CREATE TABLE alternate (id integer primary key,datasource integer,word text,bword text,letter text,bletter text,xml text,supplement integer,quasi integer,alternate integer);
 CREATE TABLE itype (id integer primary key,datasource integer,itype integer,root text,broot text,nodeid text,word text,xml text, bareword text);
 CREATE TABLE entry (id integer primary key,datasource integer,root text,broot text,word text,bword text,itype text,nodeid text,xml text,supplement integer,file text,page integer,nodenum real, bareword text,perseusxml text,headword text, type int default 0);
-CREATE TABLE links (id integer primary key, linkid integer,datasource integer,root text,word text,fromnode text,tonode text,link text,matchtype integer,matchedword text,orthtype integer,status integer);
+CREATE TABLE links (id integer primary key, linkid integer,datasource integer,root text,word text,fromnode text,tonode text,link text,matchtype integer,matchedword text,orthtype integer default -1,status integer default -1);
 CREATE INDEX 'word_index' on entry (word asc);
 CREATE INDEX 'headword_index' on entry (headword asc);
 CREATE INDEX 'broot_index' on entry (broot asc);
