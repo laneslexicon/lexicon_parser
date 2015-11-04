@@ -29,6 +29,9 @@ my $dryrun=0;
 my $showall=0;
 my $fixCount=0;
 my $arrowCount=0;
+my $lh;
+my $writeCount = 0;
+my $updateCount = 0;
 use List::Util qw( max );
 
 sub max_depth {
@@ -141,6 +144,25 @@ sub dump_tree {
     $node = $node->nextSibling;
   }
 }
+sub isBreak {
+  my $t = shift;
+
+  if ($t =~ /^\s*↓\s*$/) {
+    return 0;
+  }
+  $t =~ s/↓/ /;
+  if ($t =~ /^\p{IsSpace}+$/) {
+    return 0;
+  }
+  if ($t =~ /^\s*\,\s*$/) {
+    return 0;
+  }
+  if ($t =~ /[a-zA-Z]/) {
+    return 1;
+  }
+
+  return 1;
+}
 sub checkSiblings {
   my $node = shift;
   my $dx = shift;
@@ -159,21 +181,12 @@ sub checkSiblings {
   while ($n) {
     if ($n->nodeType == XML_TEXT_NODE) {
       my $t = $n->textContent;
-#      if ($t =~ /[a-zA-Z\[\]\(\)]/) {                       # English text
-#        last;
-#      }
-      if ($t =~ /[a-zA-Z]/) {                       # English text
+      if (isBreak($t)) {
         last;
       }
-#      if ($t =~ /[\[\]\(\)]/) {
-#        $s = "P";
-#      }
       else {
         $s .= "T";
       }
-  #    if ($t =~ /\R/) {
-#        $s .= "*";
-#      }
     }
     if ($n->nodeType == XML_ELEMENT_NODE) {
       if ($n->nodeName !~ /foreign|orth/) {
@@ -206,6 +219,7 @@ sub checkSiblings {
   ## if we are reading backwards and all we have is a text node not containg English letters
   ## then just ignore it (it will be spaces with down arrow);
   if ($dx == -1) {
+    $s = reverse $s;
     if ($s =~ /^T$/) {
       $s = "";
     }
@@ -272,49 +286,71 @@ sub perseus {
   my $pop = "‬";
   my $wordcount=0;
   my $fixed;
-
-
+  my $linkId;
+  my $fixtype=-1;
   if ($buckwalter) {
     $rtle = "";
     $pop = "";
   }
-
+  #
   foreach my $orth (@orths) {
     $arrowCount++;
+
     my $nodesbefore = checkSiblings($orth,-1);    ## siblings before
     my $nodesafter = checkSiblings($orth,1);     ## siblings after
     $fixed = " ";
-    $wordcount = scalar(split '\s+',$orth->textContent);
+
+    $orth->setAttribute("n","$i");
+    $wordcount = scalar(split /\s+/,$orth->textContent);
+    if ($wordcount > 1) {
+      $orth->setAttribute("subtype","multiwordlink");
+    }
+    else {
+      $orth->setAttribute("subtype","singlewordlink");
+    }
+
+    # remove this when finished
+    $linkId = $orth->getAttribute("linkId");
+    if ($linkId) {
+      $orth->setAttribute("nogo",$linkId);
+    }
     # treat before and after entries as 'errors'
     if ((length($nodesbefore->{types}) > 0) || (length($nodesafter->{types}) > 0 )) {
       $errs++;
     }
     # a multiword link where the xref is to the last Arabic word
     if ((length($nodesbefore->{types}) == 0) && (length($nodesafter->{types}) == 0)) {
+      $wordcount = scalar(split /\s+/,$orth->textContent);
       if ($wordcount > 1) {
-        fix_link_type3($orth);
+        $orth->setAttribute("subtype","multiwordlink");
+        $wordcount = fix_link_type3($orth);
         $fixCount++;
         $fixed = "3";
+        $fixtype = 1;   # multiword link no b/a
       }
       # a single word link, nothing needs to be done
       elsif ($wordcount == 1) {
         $fixCount++;
         $fixed = "s";
+        $orth->setAttribute("subtype","singlewordlink");
+        $fixtype = 0;   # single word link
       }
     }
 
     if ((length($nodesbefore->{types}) > 0) &&
         ((length($nodesafter->{types}) == 0) || ($nodesafter->{types} eq "T"))) {
       if ($fixup) {
-        if ($nodesbefore->{types} eq "TF") {
-          fix_link_type1($orth,length($nodesbefore->{types}),length($nodesafter->{types}));
+        if ($nodesbefore->{types} eq "FT") {
+          $wordcount = fix_link_type1($orth,length($nodesbefore->{types}),length($nodesafter->{types}));
           $fixCount++;
           $fixed = "1";
+          $fixtype = 2;
         }
-        if (($nodesbefore->{types} eq "TFTF") || ($nodesbefore->{types} eq "TFTFT")) {
-          fix_link_type2($orth,length($nodesbefore->{types}),length($nodesafter->{types}));
+        if (($nodesbefore->{types} eq "FTFT") || ($nodesbefore->{types} eq "FTFTF")) {
+          $wordcount = fix_link_type2($orth,length($nodesbefore->{types}),length($nodesafter->{types}));
           $fixCount++;
           $fixed = "2";
+          $fixtype = 3;
         }
       }
     }
@@ -323,27 +359,42 @@ sub perseus {
       if ($nodesafter->{types} eq "TF") {
         if ($fixup) {
           if (($nodesbefore->{types} eq "TF") || ($nodesbefore->{types} eq "" )) {
-            fix_link_type4($orth,length($nodesbefore->{types}),length($nodesafter->{types}));
+            $wordcount = fix_link_type4($orth,length($nodesbefore->{types}),length($nodesafter->{types}));
             $fixCount++;
             $fixed = "4";
+            $fixtype = 4;
           }
         }
       }
 
 
-      $txt .= sprintf "[%5d][%s][%02d] %2d %10s B [$rtle%40s$pop] A [%s]\n",$arrowCount,$fixed,$wordcount,$i,
+      $txt .= sprintf "%6d %6d:%s:[%02d] %2d %10s B [$rtle%40s$pop] A [%s]\n",$arrowCount,$linkId,$fixed,$wordcount,$i,
           (sprintf "[%s]",$nodesbefore->{types}),
           $orth->textContent,
           $nodesafter->{types} if $verbose;
 
-      $i++;
+    $i++;
+    if (! $dryrun && ($linkId > 0)) {
+      $lh->bind_param(1,$fixtype);
+      $lh->bind_param(2,$linkId);
+      $lh->execute();
+      if ($lh->err ) {
+        print STDERR "Warning: unable to update link record, disabling writes " . $lh->err . " error msg: " . $lh->errstr . "\n";
+        $dryrun = 1;
+      }
+      else {
+        $writeCount++;
+      }
 
     }
+
+  }
+
   my $newxml;
   if ($fixup) {
     $newxml = $nodes->[0]->toString;
   }
-  return (scalar @orths,$errs,$txt,$newxml);
+  return (scalar(@orths),$errs,$txt,$newxml);
 
 }
 #
@@ -358,6 +409,7 @@ sub fix_link_type1 {
   my @nodes;
   $node = $orth->previousSibling;
   my $beforetext = "";
+  my $wordcount;
 
  $ix = $nodesbefore;
 
@@ -383,26 +435,28 @@ sub fix_link_type1 {
     my $p = $node->parentNode;
     $p->removeChild($node);
   }
-  my @words = split '\s+',$orth->textContent;
-
-    $orth->setAttribute("subtype","multiwordlink");
-    my $textnode = $orth->firstChild;
-    if ($textnode->nodeType == XML_TEXT_NODE) {
-      my @words = split '\s+',$textnode->textContent;
-      if (scalar(@words) > 0) {
-        # print STDERR "\n" . $words[$#words] . "\n";
-        my $linkword = pop @words;
+  $wordcount = scalar(split /\s+/,$beforetext);
+  # get the text, remove the linked to word
+  # and add it as a <ref> child, then add the remaining text
+  my $textnode = $orth->firstChild;
+  if ($textnode->nodeType == XML_TEXT_NODE) {
+    my @words = split /\s+/,$textnode->textContent;
+    if (scalar(@words) > 0) {
+      # print STDERR "\n" . $words[$#words] . "\n";
+      my $linkword = pop @words;
       my $newtext = XML::LibXML::Text->new(sprintf "%s ", join ' ',@words );
       $orth->replaceChild($newtext,$textnode);
-        my $linknode = $orth->addNewChild("","ref");
-        $linknode->appendText("$linkword");
-        $linknode->setAttribute("render","linkwordwitharrow");
-        $linknode->setAttribute("type","1");
-      }
+      my $linknode = $orth->addNewChild("","ref");
+      $linknode->appendText("$linkword");
+      $linknode->setAttribute("render","linkwordwitharrow");
+      $linknode->setAttribute("type","1");
     }
+    $wordcount += scalar(@words);
+  }
 
   $orth->appendText($beforetext);
-
+  $orth->setAttribute("subtype","multiwordlink");
+  return $wordcount;
 #  if ($nodesafter == 0) {
 #    return;
 #  }
@@ -424,7 +478,7 @@ sub fix_link_type2 {
   my $node;
   my $ix;
   my @nodes;
-
+  my $wordcount = 0;
   my $beforetext = "";
   my $appendtext = "";
   my $nodetype;
@@ -456,12 +510,13 @@ sub fix_link_type2 {
     my $p = $node->parentNode;
     $p->removeChild($node);
   }
-  my @words = split '\s+',$orth->textContent;
+  my @words = split /\s+/,$orth->textContent;
 
-  $orth->setAttribute("subtype","multiwordlink");
+  $wordcount = scalar(@words) + scalar(split /\s+/,$beforetext) + scalar(split /\s+/,$appendtext);
+
   my $textnode = $orth->firstChild;
   if ($textnode->nodeType == XML_TEXT_NODE) {
-    my @words = split '\s+',$textnode->textContent;
+    my @words = split /\s+/,$textnode->textContent;
     if (scalar(@words) > 0) {
       # print STDERR "\n" . $words[$#words] . "\n";
       my $linkword = pop @words;
@@ -475,6 +530,8 @@ sub fix_link_type2 {
     }
   }
   $orth->appendText($beforetext);
+  $orth->setAttribute("subtype","multiwordlink");
+  return $wordcount;
 }
 ######################################################
 # For plain multiword links with no befores or afters
@@ -492,8 +549,9 @@ sub fix_link_type3 {
     return;
   }
 
-  $orth->setAttribute("subtype","multiwordlink");
-  my @words = split '\s+',$textnode->textContent;
+
+  my @words = split /\s+/,$textnode->textContent;
+  my $wordcount = scalar(@words);
   my $linkword = pop @words;
 
   $orth->removeChild($textnode);
@@ -512,7 +570,8 @@ sub fix_link_type3 {
   else {
     $linknode->setAttribute("render","linkwordwitharrow");
   }
-
+  $orth->setAttribute("subtype","multiwordlink");
+  return $wordcount;
 }
 #
 #  TF after optionally with TF before
@@ -573,13 +632,15 @@ sub fix_link_type4 {
     $p->removeChild($node);
   }
   # get the text and then drop the text node
-  my @words  = split '\s+',$orth->textContent;
+  my @words  = split /\s+/,$orth->textContent;
+  my $wordcount = scalar(@words) + scalar(split /\s+/,$beforetext) + scalar(split /\s+/,$aftertext);
+
   my $linkword = pop @words;
   my $textchild = $orth->firstChild;
   $orth->removeChild($textchild);
 
   # add the linked word
-  $orth->setAttribute("subtype","multiwordlink");
+
   if (scalar(@words) > 0) {
     my $t = sprintf "%s ",join " ",@words;
     $orth->appendText($t);
@@ -590,6 +651,8 @@ sub fix_link_type4 {
   $linknode->setAttribute("type","4");
   $orth->appendText($beforetext);
   $orth->appendText($aftertext);
+  $orth->setAttribute("subtype","multiwordlink");
+  return $wordcount;
 }
 #################################################################
 #
@@ -689,16 +752,16 @@ if ($xmlfile) {
   process_file($xmlfile);
   exit 0;
 }
-#   /tmp/lexicon2.sqlite is the 'clean' version
+#   /tmp/lexicon.sqlite is the 'clean' version
 #
 #
 if (! $dryrun ) {
   unlink "lexicon3.sqlite";
-  system("cp /tmp/lexicon2.sqlite lexicon3.sqlite");
+  system("cp /tmp/lexicon.sqlite lexicon3.sqlite");
   openDb("lexicon3.sqlite");
 }
 else {
-  openDb("/tmp/lexicon2.sqlite");
+  openDb("/tmp/lexicon.sqlite");
 }
 #$node = "n5217";
 my $sth;
@@ -715,7 +778,6 @@ else {
   $sql = "select id,root,broot,page,word,bword,nodeid,XML from entry order by nodenum asc";
 }
 
-
 if ($buckwalter) {
   $sql =~ s/XML/perseusxml/;
 }
@@ -729,6 +791,11 @@ if (! $dryrun ) {
     die "ERROR preparing update SQL:" . $usth->err . " error msg: " . $usth->errstr . "\n";
     exit 0;
   }
+  $lh = $dbh->prepare("update links set orthtype = ? where id = ?");
+  if ( $lh->err ) {
+    die "ERROR preparing update link SQL:" . $lh->err . " error msg: " . $lh->errstr . "\n";
+    exit 0;
+  }
 
 }
 
@@ -737,21 +804,17 @@ $sth->execute();
 my ($root,$broot,$page,$word,$bword);
 my $xml;
 my $nxml;                       # fixed xml
-my $total = 0;
 my $errors = 0;
 my $a;
 my $e;
 my $t;
 my $id;
-my $writeCount = 0;
-my $updateCount = 0;
 $sth->bind_columns(\$id,\$root,\$broot,\$page,\$word,\$bword,\$node,\$xml);
 while ($sth->fetch) {
   if ($showxml) {
     print decode("UTF-8",$xml);
   }
   ($a,$e,$t,$nxml) = perseus($xml);
-  $total += $a;
   $errors += $e;
 
   print sprintf "%s %s %s\n%s\n",$node,$broot,$bword,$t if $a > 0;
