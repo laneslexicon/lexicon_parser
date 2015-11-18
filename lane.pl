@@ -1365,7 +1365,7 @@ sub processRoot {
       my $nodeid = sprintf "j%d",$jumpId;
       my $xml = sprintf "<entryFree id=\"%s\" key=\"%s\" type=\"main\">",$nodeid,convertString($jumpFromRoot,"root",$rootLineNumber);
       $xml .= " See ";
-      $xml .= sprintf "<foreign lang=\"ar\" jumptoroot=\"%s\" nodeid=\"%s\">%s</foreign>",
+      $xml .= sprintf "<ptr lang=\"ar\" pointing=\"%s\" id=\"%s\">%s</ptr>",
         $jumpToRoot,$nodeid,convertString($jumpToRoot,"root",$rootLineNumber);
 
       $xml .= "</entryFree>";
