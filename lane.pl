@@ -856,7 +856,7 @@ sub writeLinkRecords {
     my $n = $nodes->item($i);
     my $attr = $n->getAttribute("type");
     if ($attr && ($attr eq "arrow")) {
-      my $linkId = $n->getAttribute("linkId");
+      my $linkId = $n->getAttribute("linkid");
       if ($linkId =~ /\d+/) {
         $linksth->bind_param(1,$linkId);
         $linksth->bind_param(2,$root);
@@ -953,7 +953,7 @@ sub convertNode {
         # to aid with searching routines, split multi-word text and write
         # record for each word
         #
-        my @words = split '\s+',$text;
+        my @words = split /\s+/,$text;
         if ($#words > 1) {
           $type = 2;
           foreach my $word (@words) {
@@ -1021,7 +1021,7 @@ sub insertTropical {
 }
 sub insertLinkId {
   my $xml = shift;
-  $xml =~  s/(orth\s+type\s*=\s*"arrow")/{ sprintf "$1 linkId=\"%d\"",++$linkId;}/ge;
+  $xml =~  s/(orth\s+type\s*=\s*"arrow")/{ sprintf "$1 linkid=\"%d\"",++$linkId;}/ge;
   return $xml;
 }
 ################################################################
@@ -1273,14 +1273,8 @@ sub processRoot {
       }
       $xml = insertSenses($xml);
       $xml = insertTropical($xml);
-      # this has moved to the links handling code
-#      if ($enforceSingleWordLinks) {
-#        ($multiWordLink,$xml) = forceSingleWordLink($xml);
-#        if ($multiWordLink > 0) {
-#          print $plog "Multiword link count $multiWordLink\n";
-#        }
-#      }
-      my $startLinkId = $linkId;
+
+
       $xml = insertLinkId($xml);
       #
       # update db
@@ -1288,15 +1282,6 @@ sub processRoot {
       my $ok = writeEntry(convertString($currentRoot,"root",$rootLineNumber),$currentRoot,
                           convertString($currentWord,"word",$entryLineNumber),
                           $currentItype,$currentNodeId,$currentWord,$xml,$perseusxml);
-      #
-      # TODO remove
-      #
-#      if ($ok && ($#currentForms != -1)) {
-#        writeOrths($currentNodeId,
-#                   convertString($currentRoot,"root",$rootLineNumber),
-#                   $currentRoot,
-#                   @currentForms);
-#      }
       #
       # write link records that will be updated when links.pl is run
       #

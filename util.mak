@@ -6,6 +6,8 @@
 .PHONY: onefile
 .PHONY: build
 XMLFILES := $(wildcard ./tmp/*.xml)
+DBDATE := $(shell date +"%y%m%d")
+DBNAME := "$(DBDATE).sqlite"
 #
 # these are for testing various XLST
 #
@@ -34,12 +36,13 @@ testentry:
               -s:/tmp/lane/entry_n$${N}.xml \
               -o:/tmp/test$${N}.html
 
-
+test:
+	echo $(DBNAME)
 # in the test directory, copy test_skel.xml as <name>.xml and insert the root entry at the place indicated
 # then run this:
 # make -f util.mak xml=<name> test
 # and it will look for <name>.xml and output <name>.sqlite
-test:
+testroot:
 	./version.sh
 	perl lane.pl --db ${xml}.sqlite --initdb --overwrite --xml ./test/${xml}.xml --no-context --sql ./lexicon_schema.sql
 #
@@ -54,18 +57,23 @@ lexicon:
 	./version.sh
 	perl lane.pl --db lexicon.sqlite --initdb --overwrite --dir .../xml --no-context --verbose --logbase lexicon --sql ./lexicon_schema.sql
 #
-#
-# this one does everything, using the -do-all option instead of doing it step by step (like in 'full' below)
+# DO THIS ONE this one does everything, using the -do-all option instead of 
+# doing it step by step (like in 'full' below)
 #
 #
 build:
 	./version.sh
-	perl lane.pl --db lexicon.sqlite --initdb --overwrite -dir ../xml --no-context --verbose --log-dir ../logs --sql ./lexicon_schema.sql --do-all --show-progress --single-word-links --with-perseus
+	perl lane.pl --db lexicon.sqlite --initdb --overwrite -dir ../xml --no-context --verbose --log-dir ../logs --sql ./lexicon_schema.sql --do-all --show-progress --with-perseus
 	perl links.pl --db lexicon.sqlite --log-dir ../logs --heads
-	cp lexicon.sqlite lexicon_nolinks.sqlite
+	perl orths.pl --db lexicon.sqlite --log-dir ../logs --verbose
 	perl links.pl --db lexicon.sqlite --log-dir ../logs --links
 	perl reports.pl --db lexicon.sqlite --log-dir ../logs --dbid `cat LASTRUNID` --dir ../xml 
 	perl reports.pl --dbid `cat LASTRUNID` --headwords --unmatched --log-dir ../logs
+# without single word links and link processing
+devbuild:
+	./version.sh
+	perl lane.pl --db $(DBNAME) --initdb --overwrite -dir ../xml --no-context --verbose --log-dir ../logs --sql ./lexicon_schema.sql --do-all --show-progress --with-perseus
+	perl links.pl --db $(DBNAME) --log-dir ../logs --heads
 #
 #
 #      run this to get a complete database
@@ -73,7 +81,7 @@ build:
 #
 full:
 	./version.sh
-	perl lane.pl --db lexicon.sqlite --initdb --overwrite --dir ../xml --no-context --verbose --logbase lexicon --log-dir ../logs --sql ./lexicon_schema.sql --single-word-links
+	perl lane.pl --db lexicon.sqlite --initdb --overwrite --dir ../xml --no-context --verbose --logbase lexicon --log-dir ../logs --sql ./lexicon_schema.sql
 	cp lexicon.sqlite /tmp
 	perl lane.pl --db lexicon.sqlite --xrefs
 	perl lane.pl --db lexicon.sqlite --diacritics
@@ -90,3 +98,4 @@ xmltojson:
 
 diacritics:
 	perl lane.pl --db lexicon.sqlite --diacritics
+

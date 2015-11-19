@@ -1,4 +1,8 @@
 #!/usr/bin/perl -w
+#
+#
+#
+#
 use strict;
 use POSIX;
 use XML::LibXML;
@@ -45,7 +49,7 @@ my $currentWord;
 my $currentNodeId;
 my $headwords=0;
 my $verbForms=0;
-my $updateLinks=0;
+my $fixLinks=0;
 my $noUpdate=0;
 my $showXml=0;
 my $showHelp=0;
@@ -164,6 +168,11 @@ sub find_word {
   }
   return -1;
 }
+###################################################################################
+#
+#  sets the headword field in entry table
+#
+###################################################################################
 sub find_headwords {
   my %b;
   my @bletters;
@@ -442,11 +451,8 @@ sub setLinksForNode {
   #
   #
   #
-  if ($nodeName eq "foreign") {
-    my $attr = $node->getAttributeNode("jumptoroot");
-    if ($attr) {
+  if ($nodeName eq "ptr") {
       return;
-    }
   }
   #
   #  can it have multiple text nodes ?
@@ -528,88 +534,6 @@ sub setLinksForNode {
   }
 }
 
-#############################################################
-# can optionally just do links for letter supplied as param
-# otherwise it will do all
-############################################################
-sub setLinksOld {
-  my $node = shift;
-  my $parser = XML::LibXML->new;
-  $parser->set_options("line_numbers" => "parser");
-  my $sql;
-  my $entrysth;
-  if (! $node ) {
-    $sql = "select id,root,broot,word,bword,nodeid,xml,page,headword from entry where datasource = 1";
-    $entrysth = $dbh->prepare($sql);
-  } else {
-    $sql = "select id,root,broot,word,bword,nodeid,xml,page,headword from entry where datasource = 1 and nodeid = ?";
-    $entrysth = $dbh->prepare($sql);
-    $entrysth->bind_param(1,$node);
-  }
-  my $updatesth = $dbh->prepare('update entry set xml = ? where id = ?');
-  $baresth = $dbh->prepare("select id,word,bword,bareword,nodeid from entry where bareword = ? and datasource = 1");
-
-  my $lastentrysth;
-  my @entry;
-  $entrysth->execute();
-  while (@entry = $entrysth->fetchrow_array()) {
-    my ($id, $root,$broot,$word,$bword,$nodeid,$xml,$page) = @entry;
-    print STDERR "$nodeid\n" unless ! $verbose;
-    my $doc = $parser->parse_string($xml);
-    $doc->setEncoding("UTF-8");
-    my $nodes = $doc->getElementsByTagName("entryFree");
-    my $n = $nodes->size();
-    $currentRecordId = $id;
-    for (my $i = 0; $i < $n; $i++) {
-      $#links = -1;             # clear old links
-      my $node = $nodes->item($i);
-      $updateNode = 0;
-      $currentNodeId = $nodeid;
-      $currentWord = $word;
-      #
-      # in links mode this wil call
-      # setLinksForNode
-      #
-      traverseNode($node);
-      #  REMOVE THE NEXT LINE WHEN DONE
-      $updateNode = 0;
-      if ($updateNode) {
-        $xml = $node->toString;
-        $updatesth->bind_param(1,$xml);
-        $updatesth->bind_param(2,$id);
-        $updatesth->execute();
-        $writeCount++;
-        if ($writeCount > $commitCount) {
-          $dbh->commit();
-          #           $dbh->begin_work();
-          $writeCount = 0;
-        }
-      }
-      if (scalar(@links) > 0) {
-        print $logfh sprintf "Links for [%d][%s][%s][%s]\n",$id,$nodeid,decode("UTF-8",$word),$bword;
-        foreach my $link (@links) {
-          if ($link->{type} == 0) {
-            print $logfh sprintf "[%d]    [%s]  to  [%d][%s] [%s][%d]\n",$link->{linkid},$link->{word},$link->{id},$link->{node},$link->{bword},$link->{bareword};
-          } else {
-            my $w = $link->{word}; # this should be arabic unless we have run with --no-convert
-            eval {
-              print $logfh sprintf "[unresolved arrow %d ] %s, V%d/%d\n",$link->{id},$w,getVolForPage($page),$page;
-            };
-            if ($@) {
-              print STDERR $@ . "\n";
-            }
-          }
-        }
-      }
-    }
-  }
-  if ($writeCount > 0) {
-    $dbh->commit();
-    #    $dbh->begin_work();
-    $writeCount = 0;
-  }
-  print STDERR "Links count $arrowsCount, unresolved : $unresolvedArrows\n";
-}
 sub gen_verbs {
   my $root = shift;
 
@@ -800,7 +724,6 @@ sub findLink {
            ($linkToId,$linkToRoot,$linkToNode,$linkToWord,$linkToPage,$linkType) = lookupWord($root,$t);
          }
           }
-#      remove_affixes($linkword);
       if ($linkToNode) {
 #        print sprintf "[%d] Matched word %s to %s, node %s\n",$affixmatch,$linkword,decode("UTF-8",$linkToWord),$linkToNode;
       push @matches,{ node => $linkToNode,
@@ -812,7 +735,6 @@ sub findLink {
                       type => $linkType };
       }
       else {
-#        print sprintf "Unmatched word %s\n",$linkword;
       }
   }
 #  print Data::Dumper->Dump([\@matches],[qw(matches)]);
@@ -831,7 +753,7 @@ sub setLinks {
   my $sql;
   my $attrnode;
   my $entrysth;
-  my $linktext;
+
   my $linkToNode;
   my $updateRequired;
   if (! $node ) {
@@ -855,104 +777,105 @@ sub setLinks {
     my ($id, $root,$broot,$word,$bword,$nodeid,$xml,$page) = @entry;
     my $doc = $parser->parse_string($xml);
     $doc->setEncoding("UTF-8");
-    my $nodes = $doc->getElementsByTagName("orth");
-    my $n = $nodes->size();
+    # note:
+    # node $doc->toString and $node->toString behave differently
+    #
+
+    my @orths = $doc->findnodes('//ref');
     my $printHeader=0;
     my $linkId;
+
+    my $orthindex;
+    my $pattern;
+    my $fixtype;
     $updateRequired = 0;
     $currentRecordId = $id;
-    for (my $i = 0; $i < $n; $i++) {
+    foreach my $node (@orths) {
+      my $linktext;
       $#links = -1;             # clear old links
-      $linkId = -1;
-      my $node = $nodes->item($i);
-      $attrnode = $node->getAttributeNode("type");
-      if ($attrnode && ($attrnode->value eq "arrow")) {
-        $attrnode = $node->getAttributeNode("linkId");
-        if ($attrnode) {
-          $linkId = $attrnode->value("linkId");
-        }
+      $linkId = $node->getAttribute("cref");
+      $orthindex = $node->getAttribute("n");
+      $fixtype = $node->getAttribute("type");
+      $pattern = $node->getAttribute("subtype");
         # show node name
-        if ($verbose && !$printHeader ) {
-          print STDERR $nodeid . "\n";
-          $printHeader = 1;
-        }
-        if ($showXml) {
-          print STDERR $node->toString . "\n";
-        }
-        $arrowsCount++;
-        $linktext = $node->textContent;
-        my @matches = findLink(decode("UTF-8",$root),$linktext);
-        if ((scalar @matches) > 1) {
-          $multiMatches++;
-        }
-        if ((scalar @matches) > 0) {
-          for(my $j=0;$j <= $#matches;$j++) {
-            my $m = $matches[$j];
-            my ($linkToId,$linkToNode,$linkToWord,$linkType);
-            print  $logfh sprintf "‎ %d,%d,%d,%s,%s,%s,%s,%s\n",
-              scalar(@matches),
-              $linkId,
-              $m->{type},
-              $linktext,
-              $nodeid,
-              $m->{matchedword},
-              $m->{node},
-              $m->{word};
+      if ($verbose && !$printHeader ) {
+        print $logfh $nodeid . "\n";
+        $printHeader = 1;
+      }
+      if ($showXml) {
+        print STDERR $node->toString . "\n";
+      }
+      $arrowsCount++;
 
-          }
-          ### update the node xml,
-          my $matchIx = -1;
-          if (scalar(@matches) == 1) {
-            $matchIx = 0;
-          }
-          if (scalar(@matches) > 1) {
+      $linktext = $node->getAttribute("target");
+
+      my @matches = findLink(decode("UTF-8",$root),$linktext);
+      if ((scalar @matches) > 1) {
+        $multiMatches++;
+      }
+      if ((scalar @matches) > 0) {
+        for(my $j=0;$j <= $#matches;$j++) {
+          my $m = $matches[$j];
+          my ($linkToId,$linkToNode,$linkToWord,$linkType);
+          print  $logfh sprintf "‎ %d,%d,%d,%s,%s,%s,%s,%s\n",
+            scalar(@matches),
+            $linkId,
+            $m->{type},
+            $linktext,
+            $nodeid,
+            $m->{matchedword},
+            $m->{node},
+            $m->{word};
+        }
+        ### update the node xml,
+        my $matchIx = -1;
+        if (scalar(@matches) == 1) {
+          $matchIx = 0;
+        }
+        if (scalar(@matches) > 1) {
             ### very much TODO
-            ### is it reasonable to assume that the ↓ always precedes the
-            ### the word? If so, then we can ignore multiword links and just
-            ### process the first word.
-            $matchIx = 0;
-          }
-          if ($matchIx != -1) {
-            my $m = $matches[$matchIx];
-            # $node->setAttribute("goto",$m->{id});
-            # $node->setAttribute("root",$m->{root});
-            # $node->setAttribute("page",$m->{page});
-            # $node->setAttribute("vol",getVolForPage($m->{page}));
-            # $node->setAttribute("nodeid",$m->{node});
-            # $node->setAttribute("matched",$m->{matchedword});
-            # $node->setAttribute("linktype",$m->{type});
-            $node->setAttribute("golink",$linkId);
-            $updateRequired = 1;
-            if (! $noUpdate && ($linkId != -1)) {
-              # update links table
-              updateLinkRecord($linkId,$m->{node},$m->{type},$linktext);
-            }
-            if ($showXml) {
-              print STDERR $node->toString . "\n\n";
-            }
-            $resolvedArrows++;
-          }
-          else {
-
-            print STDERR "We should not be here\n";
-          }
+          $matchIx = 0;
         }
-        else {
-          updateLinkRecord($linkId,"",-1,$linktext);
-          $node->setAttribute("nogo",$linkId);
+        if ($matchIx != -1) {
+          my $m = $matches[$matchIx];
+          # $node->setAttribute("goto",$m->{id});
+          # $node->setAttribute("root",$m->{root});
+          # $node->setAttribute("page",$m->{page});
+          # $node->setAttribute("vol",getVolForPage($m->{page}));
+          # $node->setAttribute("nodeid",$m->{node});
+          # $node->setAttribute("matched",$m->{matchedword});
+          # $node->setAttribute("linktype",$m->{type});
+          $node->setAttribute("select",$linkId);
           $updateRequired = 1;
-          print $logfh sprintf "0,%d,%s,%s\n",$linkId,$linktext,$nodeid;
+          if (! $noUpdate && ($linkId != -1)) {
+            # update links table
+            updateLinkRecord($linkId,$m->{node},$m->{type},$linktext);
+          }
+          if ($showXml) {
+            print $logfh $node->toString . "\n\n";
+          }
+          $resolvedArrows++;
+        } else {
+
+          print STDERR "We should not be here\n";
         }
+      } else {
+        # do we need to do anything if no match found
+        updateLinkRecord($linkId,"",-1,$linktext);
+        $updateRequired = 1;
+        print $logfh sprintf "0,%d,%s,%s\n",$linkId,$linktext,$nodeid;
       }
     }
-
     if (! $noUpdate && $updateRequired) {
-      my $xml = decode("UTF-8",$doc->toString);
+      my @entryfree = $doc->getElementsByTagName("entryFree");
+      my $xml = $entryfree[0]->toString;
+      #my $xml = decode("UTF-8",$doc->toString);
       # toString is returning <?xml version="1.0"?>
       # so strip this out.
       # There's probably some setting that stops this
       # but I haven't found it.
-        $xml =~ s/^<?.+?>//;
+      # Added: using $node->toString without the decode and the stripping
+#        $xml =~ s/^<?.+?>//;
         $updatesth->bind_param(1,$xml);
         $updatesth->bind_param(2,$id);
         $updatesth->execute();
@@ -993,6 +916,14 @@ sub updateLinkRecord {
 ###########################################################################
 # main
 #
+# Two main functions:
+# (1) To set the headword value in 'entry' table
+#     Lane often has phrases has headwords i.e. in the original text the
+#     first words for the entry are in bold
+#     The code tries to find the word based on the current root
+#
+#
+# (2) To set the @golink attribute for <orth type="arrow"> entries
 # eg to test the links for a particular node:
 #
 # perl links.pl --db vanilla.sqlite --links --node n9017
@@ -1007,7 +938,7 @@ GetOptions(
            "verbose" => \$verbose,
            "fixes=s" => \$headFixesFile,
            "forms=s" => \$verbForms,
-           "links" => \$updateLinks,
+           "links" => \$fixLinks,
            "heads" => \$headwords,
            "dry-run" => \$noUpdate,
            "with-xml" => \$showXml,
@@ -1038,6 +969,10 @@ if (! $dbh ) {
   print STDERR "Error opening DB $dbName\n";
   exit 0;
 }
+#
+#  if directory is given, use the dbid from the database as a subdirectory. The
+#  other log files (created by lane.pl) should be in there.
+#
 if (! $logDir ) {
   $logDir = ".";
 }
@@ -1067,9 +1002,19 @@ if ($verbForms) {
   my $word = "تكاتبا";
   check_verbforms($root,$word);
 }
-if (! $updateLinks ) {
+if (! $fixLinks ) {
   exit 0;
 }
+#
+# fixing links requiers parsing xml of each entry record for all <orth type="arrow">
+# 1. Getting the linkId attribute for the same node.
+# 2. Call findLink to for the text content of the node (and the current root)
+# 3. If matching entry is found
+# 4.    set @golink attribute for the node and
+#       update the link table for the linkId, setting the from_entry and to_entry
+# 5. otherwise, add a @nogo attribute for the link
+# 6. When all orth/arrow entries have been done, Save the XML for the current record
+#
 my $linklog = File::Spec->catfile($logDir,"link.log");
 open($logfh,">:encoding(UTF8)",$linklog) or die "Cannot open logfile $@\n";
 
