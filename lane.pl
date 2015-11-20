@@ -857,12 +857,14 @@ sub writeLinkRecords {
     my $attr = $n->getAttribute("type");
     if ($attr && ($attr eq "arrow")) {
       my $linkId = $n->getAttribute("linkid");
+      my $orthid = $n->getAttribute("orthid");
       if ($linkId =~ /\d+/) {
         $linksth->bind_param(1,$linkId);
         $linksth->bind_param(2,$root);
         $linksth->bind_param(3,$word);
         $linksth->bind_param(4,$node);
         $linksth->bind_param(5,$n->textContent);
+        $linksth->bind_param(6,$orthid);
         if ($linksth->execute()) {
           $writeCount++;
         }
@@ -1023,6 +1025,17 @@ sub insertLinkId {
   my $xml = shift;
   $xml =~  s/(orth\s+type\s*=\s*"arrow")/{ sprintf "$1 linkid=\"%d\"",++$linkId;}/ge;
   return $xml;
+}
+sub setOrthId {
+  my $entry = shift;
+  my $node = shift;
+
+  my $ix = 1;
+  my @orths = $entry->findnodes('.//orth[@type="arrow"]');
+  foreach my $orth (@orths) {
+    $orth->setAttribute("orthid",sprintf "%s-%s",$node,$ix);
+    $ix++;
+  }
 }
 ################################################################
 #
@@ -1259,6 +1272,7 @@ sub processRoot {
        $perseusxml = $entry->toString;
       }
       #          if (! $skipConvert ) {
+      setOrthId($entry,$currentNodeId);
       my $clone = $entry->cloneNode(1);
       if ($clone->nodeType == XML_ELEMENT_NODE) {
         $convertMode = 1;
@@ -2341,7 +2355,7 @@ sub prepareSql {
     # for the <orth> forms
 #    $orthsth = $dbh->prepare("insert into orth (datasource,entryid,form,bform,nodeid,root,broot) values (1,?,?,?,?,?,?)");
     $lastentrysth = $dbh->prepare("select max(id) from entry where datasource = 1 and type = 0");
-    $linksth = $dbh->prepare("insert into links (datasource,linkid,root,word,fromnode,link) values (1,?,?,?,?,?)");
+    $linksth = $dbh->prepare("insert into links (datasource,linkid,root,word,fromnode,link,orthid) values (1,?,?,?,?,?,?)");
   };
   if ($@) {
     print STDERR "SQL prepare error:$@\n";

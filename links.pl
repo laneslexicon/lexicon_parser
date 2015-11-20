@@ -817,7 +817,7 @@ sub setLinks {
         for(my $j=0;$j <= $#matches;$j++) {
           my $m = $matches[$j];
           my ($linkToId,$linkToNode,$linkToWord,$linkType);
-          print  $logfh sprintf "‎ %d,%d,%d,%s,%s,%s,%s,%s\n",
+          print  $logfh sprintf "‎ %d,%s,%d,%s,%s,%s,%s,%s\n",
             scalar(@matches),
             $linkId,
             $m->{type},
@@ -845,9 +845,9 @@ sub setLinks {
           # $node->setAttribute("nodeid",$m->{node});
           # $node->setAttribute("matched",$m->{matchedword});
           # $node->setAttribute("linktype",$m->{type});
-          $node->setAttribute("select",$linkId);
+          $node->setAttribute("select",$m->{node}); #$linkId);
           $updateRequired = 1;
-          if (! $noUpdate && ($linkId != -1)) {
+          if (! $noUpdate && ($linkId ne "")) {
             # update links table
             updateLinkRecord($linkId,$m->{node},$m->{type},$linktext);
           }
@@ -863,7 +863,7 @@ sub setLinks {
         # do we need to do anything if no match found
         updateLinkRecord($linkId,"",-1,$linktext);
         $updateRequired = 1;
-        print $logfh sprintf "0,%d,%s,%s\n",$linkId,$linktext,$nodeid;
+        print $logfh sprintf "0,%s,%s,%s\n",$linkId,$linktext,$nodeid;
       }
     }
     if (! $noUpdate && $updateRequired) {
@@ -1022,7 +1022,7 @@ $lookupsth = $dbh->prepare("select id,root,word,bword,nodeid,page from entry whe
 $itypesth = $dbh->prepare("select id,root,word,bword,nodeid,page from entry where root = ? and itype = ? and datasource = 1");
 $baresth = $dbh->prepare("select id,root,word,bword,bareword,nodeid,page from entry where bareword = ? and datasource = 1");
 $headsth = $dbh->prepare("select id,root,word,bword,bareword,nodeid,headword,page from entry where headword = ? and datasource = 1");
-$linksth = $dbh->prepare("update links set tonode = ?, link = ?,matchtype = ? where id = ?");
+$linksth = $dbh->prepare("update links set tonode = ?, link = ?,matchtype = ? where orthid = ?");
 $posh = $dbh->prepare("select id,root,headword,nodeid from pos where word = ?");
 my @nodes;
 

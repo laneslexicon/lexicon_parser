@@ -323,12 +323,12 @@ sub processEntry {
       $np{$p} = 0;
     }
     $np{$p} = $np{$p} + 1;
-    $linkid = $orth->getAttribute("linkid");
+    $linkid = $orth->getAttribute("orthid");
     if (! $linkid ) {
       print STDERR sprintf "%s %d : <orth> has no link id, terminating\n",$nodes->[0]->getAttribute("id"),$orthindex;
       exit 0;
     }
-    $t .= sprintf "%6d  %2d  %-15s ",$linkid,$orthindex,":$p:";
+    $t .= sprintf "%10s  %2d  %-15s ",$linkid,$orthindex,":$p:";
     my @n = @{$nb->{nodes}};
     push @n , $orth;
     push (@n,@{$na->{nodes}});
@@ -431,7 +431,7 @@ sub fixEntry {
     $ix = index $seq,"O";
     my $orth = $nodes[$ix];
     $fixtype = 1;
-    $linkid = $orth->getAttribute("linkid");
+    $linkid = $orth->getAttribute("orthid");
     $linktext = $orth->textContent;
     my @words = split /\s+/,$linktext;
     $linkword = $words[$#words];
@@ -468,7 +468,7 @@ sub fixEntry {
     my $kludgeNode = XML::LibXML::Element->new("anchor");
     $parent->insertAfter($kludgeNode,$punct);
     my $orth = $nodes[index "O",$seq];
-    $linkid = $orth->getAttribute("linkid");
+    $linkid = $orth->getAttribute("orthid");
     $linktext = $orth->textContent;
     my @words = split /\s+/,$linktext;
     $linkword = $words[$#words];
@@ -497,7 +497,7 @@ sub fixEntry {
     my $kludgeNode = XML::LibXML::Element->new("anchor");
     $parent->insertAfter($kludgeNode,$punct);
     my $orth = $nodes[index "O",$seq];
-    $linkid = $orth->getAttribute("linkid");
+    $linkid = $orth->getAttribute("orthid");
     $linktext = $orth->textContent;
     my @words = split /\s+/,$linktext;
     $linkword = $words[$#words];
@@ -525,7 +525,7 @@ sub fixEntry {
       }
     }
     my $orth = $nodes[index "O",$seq];
-    $linkid = $orth->getAttribute("linkid");
+    $linkid = $orth->getAttribute("orthid");
     $linktext = $orth->textContent;
     my @words = split /\s+/,$linktext;
     $linkword = $words[$#words];
@@ -566,7 +566,7 @@ sub fixEntry {
     my $foreignafter = $nodes[2]->textContent;
     $ix = index $seq, "O";
     my $orth = $nodes[$ix];
-    $linkid = $orth->getAttribute("linkid");
+    $linkid = $orth->getAttribute("orthid");
     $linktext = $orth->textContent;
     my @words = split /\s+/,$linktext;
     $linkword = $words[$#words];
@@ -620,7 +620,7 @@ sub fixEntry {
     $ix = index $seq,"O";
     my $orth = $nodes[$ix];
     if ($orth) {
-      $linkid = $orth->getAttribute("linkid");
+      $linkid = $orth->getAttribute("orthid");
       $linktext = $orth->textContent;
       my @words = split /\s+/,$linktext;
       $linkword = $words[$#words];
@@ -653,7 +653,7 @@ sub fixEntry {
     $ix = index $seq,"O";
     my $orth = $nodes[$ix];
     $fixtype = -1;
-    $linkid = $orth->getAttribute("linkid");
+    $linkid = $orth->getAttribute("orthid");
     $linktext = $orth->textContent;
     my @words = split /\s+/,$linktext;
     $linkword = $words[$#words];
@@ -921,7 +921,7 @@ if (! $dryrun ) {
     die "ERROR preparing update SQL:" . $usth->err . " error msg: " . $usth->errstr . "\n";
     exit 0;
   }
-  $lh = $dbh->prepare("update links set orthfixtype = ?,orthpattern = ?,orthindex = ? where linkid = ?");
+  $lh = $dbh->prepare("update links set orthfixtype = ?,orthpattern = ?,orthindex = ? where orthid = ?");
   if ( $lh->err ) {
     die "ERROR preparing update link SQL:" . $lh->err . " error msg: " . $lh->errstr . "\n";
     exit 0;
