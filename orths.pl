@@ -446,6 +446,7 @@ sub fixEntry {
     $refnode->setAttribute("n",$orthindex);
     $refnode->setAttribute("type",$fixtype);
     $refnode->setAttribute("subtype",$seq);
+    $refnode->setAttribute("lang","ar");
     $foreign->appendChild($refnode);
     $foreign->appendText($linktext);
     my $parent = $orth->parentNode;
@@ -480,6 +481,7 @@ sub fixEntry {
     $refnode->setAttribute("n",$orthindex);
     $refnode->setAttribute("type",$fixtype);
     $refnode->setAttribute("subtype",$seq);
+    $refnode->setAttribute("lang","ar");
     $foreign->appendChild($refnode);
     $foreign->appendText($linktext);
     $parent = $orth->parentNode;
@@ -509,6 +511,7 @@ sub fixEntry {
     $refnode->setAttribute("n",$orthindex);
     $refnode->setAttribute("type",$fixtype);
     $refnode->setAttribute("subtype",$seq);
+    $refnode->setAttribute("lang","ar");
     $foreign->appendChild($refnode);
     $foreign->appendText($linktext);
     $parent = $orth->parentNode;
@@ -550,6 +553,7 @@ sub fixEntry {
     }
     $refnode->setAttribute("type",$fixtype);
     $refnode->setAttribute("subtype",$seq);
+    $refnode->setAttribute("lang","ar");
     my $parent = $orth->parentNode;
     for (my $i=0;$i < $max;$i++) {
       $parent->removeChild($nodes[$i]);
@@ -586,6 +590,7 @@ sub fixEntry {
 
     $refnode->setAttribute("type",$fixtype);
     $refnode->setAttribute("subtype",$seq);
+    $refnode->setAttribute("lang","ar");
     my $parent = $orth->parentNode;
     for (my $i=0;$i < $max;$i++) {
       $parent->removeChild($nodes[$i]);
@@ -630,6 +635,9 @@ sub fixEntry {
       $refnode->setAttribute("cref",$linkid);
       $refnode->setAttribute("target",$linkword);
       $refnode->setAttribute("n",$orthindex);
+      $refnode->setAttribute("lang","ar");
+      $refnode->setAttribute("type",$fixtype);
+      $refnode->setAttribute("subtype",$seq);
       $foreign->appendText($linktext);
       $foreign->appendChild($refnode);
       $parent = $orth->parentNode;
@@ -649,6 +657,13 @@ sub fixEntry {
         $parent->replaceChild($foreign,$orth);
       }
     }
+#  } elsif ($eq eq "FSOTF") {
+    # this code assumes that we have is the <orth> text going to the end of line
+    # and the new line starts with Arabic which is tagged with foreign
+    # So if we have visually : F1O1F2
+    # The sequence should be : O1F1F2
+#    $fixtype = 8;
+
   } else {
     $ix = index $seq,"O";
     my $orth = $nodes[$ix];
@@ -665,6 +680,7 @@ sub fixEntry {
     $refnode->setAttribute("n",$orthindex);
     $refnode->setAttribute("type",$fixtype);
     $refnode->setAttribute("subtype",$seq);
+    $refnode->setAttribute("lang","ar");
     $foreign->appendChild($refnode);
     $foreign->appendText($linktext);
     my $parent = $orth->parentNode;
@@ -756,6 +772,263 @@ sub processNode {
     $writeCount = 0;
   }
 }
+################################################################
+#  buckwalter conversion
+#
+#  to load the errors as table:
+#       run with --no-context
+#       open log in emacs and M-x org-mode
+#       mark whole buffer
+#       C-u C-c |
+#   (C-u sets delimiter to ,)
+#
+#   2:  double question mark
+#   3:  ampersand
+#   4:  A@ converted to L
+#   5:  non Buckwalter character (that is not punctuation or space)
+#   6:  A_ converted to I
+################################################################
+sub convertString {
+  my $t = shift;
+
+  my $s = $t;
+
+
+  $t =~ s/^\s+//;
+  $t =~ s/\s+$//;
+
+  if ($t =~ /^\d+$/) {
+    return $t;
+  }
+    if ($t =~ /\?\?/) {
+#      return $t;
+    }
+    # convert all A@ to { for alef wasl
+    if ($t =~ /A@/) {
+      $t =~ s/A@/{/g;
+    }
+    if ($t =~ /A_/) {
+      $t =~ s/A_/I/g;
+    }
+    if ($t =~ /A\^/) {
+      $t =~ s/A\^/O/g;
+    }
+    if ($t =~ /y\^/) {
+      $t =~ s/y\^/}/g;
+    }
+    if ($t =~ /w\^/) {
+      $t =~ s/w\^/W/g;
+    }
+  # Following regex from:
+# https://stackoverflow.com/questions/3845518/how-do-i-convert-escaped-characters-into-actual-special-characters-in-perl
+#
+      $t=~s/\\(
+        (?:[arnt'"\\]) |               # Single char escapes
+        (?:[ul].) |                    # uc or lc next char
+        (?:x[0-9a-fA-F]{2}) |          # 2 digit hex escape
+        (?:x\{[0-9a-fA-F]+\}) |        # more than 2 digit hex
+        (?:\d{2,3}) |                  # octal
+        (?:N\{U\+[0-9a-fA-F]{2,4}\})   # unicode by hex
+        )/"qq|\\$1|"/geex;
+
+  #  $t =~ s/&amp;c/ /g);
+  my $c = 0;
+  $c += ($t =~ tr/'|OWI}A/\x{621}\x{622}\x{623}\x{624}\x{625}\x{626}\x{627}/);
+  $c += ($t =~ tr/bptvjHx/\x{628}\x{629}\x{62a}\x{62b}\x{62c}\x{62d}\x{62e}/);
+  $c += ($t =~ tr/d*rzs$S/\x{62f}\x{630}\x{631}\x{632}\x{633}\x{634}\x{635}/);
+  $c += ($t =~ tr/DTZEg\-f/\x{636}\x{637}\x{638}\x{639}\x{63a}\x{640}\x{641}/);
+  $c += ($t =~ tr/qklmnhw/\x{642}\x{643}\x{644}\x{645}\x{646}\x{647}\x{648}/);
+  $c += ($t =~ tr/YyFNKau/\x{649}\x{64a}\x{64b}\x{64c}\x{64d}\x{64e}\x{64f}/);
+  # ` for dagger alef
+  # { for alef wasla
+  $c += ($t =~ tr/i~o`{/\x{650}\x{651}\x{652}\x{670}\x{671}/);
+
+
+  $c += ($t =~ tr/PJVG/\x{67e}\x{686}\x{6a4}\x{6af}/);
+  # ^ hamza above
+  # = madda above
+  # _ hamza below
+  $c += ($t =~ tr/^=_/\x{654}\x{653}\x{655}/);
+
+
+  return $t;
+}
+########################################################################
+# change all sense separators -An- or -bn- :
+#   -b2-  <sense type="b" n="2">-b2-</sense>
+#
+#######################################################################
+sub insertSenses {
+  my $xml = shift;
+
+  my $t;
+  my $n;
+  my $s;
+  my $x;
+  my $r;
+  my $lastpos = 0;
+  my $ix;
+  while ($xml =~  /-([Ab])(\d+)-/g) {
+    $t = $1;
+    $n = $2;
+    $s = sprintf "-%s%d-",$t,$n;
+    $r = sprintf "<sense type=\"%s\" n=\"%d\">%s</sense>",$t,$n,$s,$s;
+    if ($t && $n) {
+      $x .= substr($xml,$lastpos,pos($xml) - $lastpos - length($s));
+      $x .= $r;
+      $lastpos = pos($xml);
+    }
+  }
+  $x .= substr($xml,$lastpos);
+  return $x;
+}
+sub insertTropical {
+  my $xml = shift;
+  my $t;
+  my $x;
+  my $r;
+  my $lastpos = 0;
+  while ($xml =~  /(\(\s*(assumed)*\s*tropical\s*[:]*\s*\))/g) {
+    $t = $1;
+    if ($t =~ /assumed/) {
+      $r = sprintf "<assumedtropical>%s</assumedtropical>",$t;
+    }
+    else {
+      $r = sprintf "<tropical>%s</tropical>",$t;
+    }
+    if ($t) {
+      $x .= substr($xml,$lastpos,pos($xml) - $lastpos - length($t));
+      $x .= $r;
+      $lastpos = pos($xml);
+    }
+  }
+  $x .= substr($xml,$lastpos);
+  return $x;
+}
+sub convertNode {
+  my $nodeid = shift;
+  my $node = shift;
+
+  # check root
+  my $rootnode = $node->parentNode;
+  my $root = "";
+
+  if ($rootnode->nodeName eq "div2") {
+    $root = $rootnode->getAttribute("n");
+  }
+  # convert arabic
+  my $bword = $node->getAttribute("key");
+  $node->setAttribute("key",convertString($bword));
+  my @ars = $node->findnodes('.//*[@lang="ar"]');
+  foreach my $ar (@ars) {
+    my $t = $ar->textContent;
+    my $a = convertString($t);
+
+    my @cn = $ar->childNodes();
+    if (scalar(@cn) == 1) {
+      my  $text = XML::LibXML::Text->new( $a );
+      $ar->replaceChild($text,$cn[0]);
+    }
+    print sprintf "%10s %10s %5d %s\n",$root,$ar->nodeName,scalar(@cn),$t;
+  }
+  # set orthid
+  my $ix = 1;
+  my @orths = $node->findnodes('.//orth[@type="arrow"]');
+  foreach my $orth (@orths) {
+    $orth->setAttribute("orthid",sprintf "%s-%s",$nodeid,$ix);
+    $ix++;
+  }
+
+  my $xml = $node->toString();
+  $xml = insertSenses($xml);
+  $xml = insertTropical($xml);
+  return { xml => $xml,id => $nodeid,word => $bword};
+}
+#
+# as long as the entry is simple this works
+#
+#
+sub processPerseusFile {
+  my $filename = shift;
+
+  my $writeCount = 0;
+  if (! -e $filename ) {
+    print STDERR "Requested Perseus xml file not found:$filename\n";
+    exit 0;
+  }
+  my $fq = $dbh->prepare("select id,xml from entry where nodeid = ? and bword = ?");
+  if ( $fq->err ) {
+    die "ERROR executing node find SQL:" . $fq->err . " error msg: " . $fq->errstr . "\n";
+    exit 0;
+  }
+  my $uq = $dbh->prepare("update entry set xml = ? where id = ?");
+
+  open IN,"<$filename";
+  binmode IN,":encoding(UTF-8)";
+  my $xml = "";
+  while (<IN>) {
+    $xml .= $_;
+  }
+  my $parser = XML::LibXML->new;
+  $parser->set_options("line_numbers" => "parser","suppress_errors" => 1);
+  #  my $parser = new XML::DOM::Parser;
+  my $doc = $parser->parse_string($xml);
+  $doc->setEncoding("UTF-8");
+  my @nodes = $doc->getElementsByTagName ("entryFree");
+  foreach my $node (@nodes) {
+    my $nodeid = $node->getAttribute("id");
+    if ($nodeid) { # && ($nodeid eq "n1128")) {
+      my $ret = convertNode($nodeid,$node);
+      $fq->bind_param(1,$nodeid);
+      $fq->bind_param(2,$ret->{word});
+      $fq->execute;
+
+      if ( $fq->err ) {
+        die "ERROR executing node find SQL:" . $fq->err . " error msg: " . $fq->errstr . "\n";
+        exit 0;
+      }
+      my $rec = $fq->fetchrow_hashref;
+      if (! $rec ) {
+        print STDERR "Cannot find matching node in entry table, update failed\n";
+      }
+      else {
+        # save a backup copy of the xml
+        open OUT,">$nodeid.xml.back";
+        binmode OUT,":encoding(UTF-8)";
+        print OUT decode("UTF-8",$rec->{xml});
+        close OUT;
+        my $v = $dryrun;
+        # do not update the links table
+        $dryrun = 1;
+        print STDERR "Old XML:\n";
+        print STDERR $ret->{xml} . "\n";
+        my $f = processEntry($ret->{xml});
+        $dryrun = $v;
+        #  return {xml => $nodes->[0]->toString,orths => scalar(@orths), text => $t};
+        print STDERR "New XML:\n";
+        print STDERR $f->{xml} . "\n";
+        print STDERR $f->{text};
+        if (! $dryrun ) {
+          $uq->bind_param(1,$f->{xml});
+          $uq->bind_param(2,$rec->{id});
+          $uq->execute;
+          if ( $uq->err ) {
+            die "ERROR executing node update SQL:" . $uq->err . " error msg: " . $uq->errstr . "\n";
+            exit 0;
+          }
+          $writeCount++;
+        }
+      }
+    }
+    else {
+      print STDERR "entry at line %d has no id, cannot convert\n",$node->line_number();
+    }
+  }
+  if ($writeCount > 0) {
+    $dbh->commit;
+  }
+  return;
+}
 ##########################################################################
 #
 #   n208 has consecutive orths arrows
@@ -784,13 +1057,28 @@ sub processNode {
 #
 # Then test XLST from the shownode directory:
 # >perl ./shownode.pl --xsl cref.xslt --xmlin ../mansur/parser/n1126.xml
+#
+# To generate a report, not doing any updates,fixes etc
+#
+# perl orths.pl --db 151119.sqlite --dry-run
+#
+# (add --verbose to see the orth related text
+#
+# To import a 'raw' perseus entry, process the xml and fix the orth entries:
+# (Note: this will only work with a 'regular' <entryFree> chunk. None of the exceptions
+# that are handled by the horribly messy lane.pl routines
+#
+#  It creates a backup fle n1128.xml.back which can be reloaded into the database.
+#
+# perl orths.pl --db 151119.sqlite --perseus n1128.xml
+#
 ##########################################################################
 
 GetOptions(
            "db=s" => \$inputdb,
            "dbout=s" => \$outputdb,
-           "file=s" => \$xmlfile,           # dev only
-           "out-template=s" => \$outfile,            # dev only
+           "perseus=s" => \$xmlfile,
+           "out-template=s" => \$outfile,
            "verbose" => \$verbose,
            "node=s" => \$node,
            "show" => \$showxml,
@@ -821,17 +1109,6 @@ if ($showhelp) {
   print STDERR "\t--help      print this\n";
   exit 1;
 
-}
-if ($xmlfile) {
-  if (-e $xmlfile) {
-    print STDERR "Cannot find the input XML file supplied : $xmlfile\n";
-    exit 0;
-  }
-  my $logfile = File::Spec->catfile(getcwd(),"orths.log");
-  open($logfh,">:encoding(UTF8)",$logfile) or die "Cannot open logfile $@\n";
-  $dryrun = 1;                 # so we don't try to update link record
-  processFile($xmlfile);
-  exit 0;
 }
 #   /tmp/lexicon.sqlite is the 'clean' version
 #
@@ -909,6 +1186,14 @@ my $logfile = File::Spec->catfile($logdir,"orths.log");
 open($logfh,">:encoding(UTF8)",$logfile) or die "Cannot open logfile $@\n";
 if ($logdir eq getcwd()) {
   print $logfh sprintf "<orth> report for dbid %s\n\n",$dbid;
+}
+if ($xmlfile) {
+  if (! -e $xmlfile) {
+    print STDERR "Cannot find the input XML file supplied : $xmlfile\n";
+    exit 0;
+  }
+  processPerseusFile($xmlfile);
+  exit 0;
 }
 #
 #  prepare the update SQL
