@@ -20,7 +20,7 @@ my $dbname;
 my $xmlfile;
 my $verbose=0;
 my $export=0;
-my $node;
+my $node = "";
 my $buckwalter=0;
 my $showxml=0;
 my $fixup=0;
@@ -217,6 +217,16 @@ sub isBreak {
 
   return 1;
 }
+#   Viewing the <orth> as the center
+#   any following node containing a-z is a break
+#   O   = <orth>
+#   F   = <foreign>
+#   For text fields, we have
+#   W = trailing node ending down arrow but with other text functioning as a break
+#   P = trailing node ending down arrow but with brackets
+#   S = spaces with a down arrow
+#   T = spaces without a down arrow
+
 sub getSiblings {
   my $node = shift;
   my $dx = shift;
@@ -240,7 +250,6 @@ sub getSiblings {
         last;
       } elsif ($t =~ /↓\s*$/) {
         push @nodes,$n;
-
         if ($t =~ /[a-zA-Z]+/) {
           $s .= "W";
           last;
@@ -435,11 +444,15 @@ sub fixEntry {
     $linktext = $orth->textContent;
     my @words = split /\s+/,$linktext;
     $linkword = $words[$#words];
+    $linkword = pop @words;
+    $linktext = join ' ',@words;
+    $linktext .= " ";
     my $foreign = XML::LibXML::Element->new("foreign");
     $foreign->setAttribute("lang","ar");
     #    if (scalar(@words) > 0) {
     #      $foreign->appendText(join ' ',@words);
     #    }
+    $foreign->appendText($linktext);
     my $refnode = XML::LibXML::Element->new("ref");
     $refnode->setAttribute("cref",$linkid);
     $refnode->setAttribute("target",$linkword);
@@ -448,14 +461,13 @@ sub fixEntry {
     $refnode->setAttribute("subtype",$seq);
     $refnode->setAttribute("lang","ar");
     $foreign->appendChild($refnode);
-    $foreign->appendText($linktext);
     my $parent = $orth->parentNode;
     $parent->replaceChild($foreign,$orth);
 
   }
   # this is just where the preceding Arabic is not contiguous but
   # does end in things like ])., so we have to force the text direction
-  # the XSLT will do that, so we just insert an <anchor> tag so it knows
+  # the XSLT will do that, so we just insert an <anchor> tag after the ]) etc so it knows
   # to do something
   elsif ($seq eq "FPO") {
     my $parent;
@@ -473,6 +485,9 @@ sub fixEntry {
     $linktext = $orth->textContent;
     my @words = split /\s+/,$linktext;
     $linkword = $words[$#words];
+    $linkword = pop @words;
+    $linktext = join ' ',@words;
+    $linktext .= " ";
     my $foreign = XML::LibXML::Element->new("foreign");
     $foreign->setAttribute("lang","ar");
     my $refnode = XML::LibXML::Element->new("ref");
@@ -482,8 +497,13 @@ sub fixEntry {
     $refnode->setAttribute("type",$fixtype);
     $refnode->setAttribute("subtype",$seq);
     $refnode->setAttribute("lang","ar");
-    $foreign->appendChild($refnode);
+
     $foreign->appendText($linktext);
+    $foreign->appendChild($refnode);
+
+#    $foreign->appendChild($refnode);
+#    $foreign->appendText($linktext);
+
     $parent = $orth->parentNode;
     $parent->replaceChild($foreign,$orth);
 
@@ -503,6 +523,9 @@ sub fixEntry {
     $linktext = $orth->textContent;
     my @words = split /\s+/,$linktext;
     $linkword = $words[$#words];
+    $linkword = pop @words;
+    $linktext = join ' ',@words;
+    $linktext .= " ";
     my $foreign = XML::LibXML::Element->new("foreign");
     $foreign->setAttribute("lang","ar");
     my $refnode = XML::LibXML::Element->new("ref");
@@ -532,6 +555,9 @@ sub fixEntry {
     $linktext = $orth->textContent;
     my @words = split /\s+/,$linktext;
     $linkword = $words[$#words];
+    $linkword = pop @words;
+    $linktext = join ' ',@words;
+    $linktext .= " ";
     my $foreign = XML::LibXML::Element->new("foreign");
     $foreign->setAttribute("lang","ar");
 
@@ -541,9 +567,9 @@ sub fixEntry {
     $refnode->setAttribute("target",$linkword);
     $refnode->setAttribute("n",$orthindex);
     if ($seq =~ /L/) {
-      $foreign->appendChild($refnode);
       $foreign->appendText($foreigntext);
       $foreign->appendText($linktext);
+      $foreign->appendChild($refnode);
       $fixtype = 4;
     } else {
       $foreign->appendText($linktext);
@@ -574,6 +600,9 @@ sub fixEntry {
     $linktext = $orth->textContent;
     my @words = split /\s+/,$linktext;
     $linkword = $words[$#words];
+    $linkword = pop @words;
+    $linktext = join ' ',@words;
+    $linktext .= " ";
     my $foreign = XML::LibXML::Element->new("foreign");
     $foreign->setAttribute("lang","ar");
 
@@ -624,11 +653,15 @@ sub fixEntry {
     }
     $ix = index $seq,"O";
     my $orth = $nodes[$ix];
+
     if ($orth) {
       $linkid = $orth->getAttribute("orthid");
       $linktext = $orth->textContent;
       my @words = split /\s+/,$linktext;
       $linkword = $words[$#words];
+    $linkword = pop @words;
+    $linktext = join ' ',@words;
+    $linktext .= " ";
       my $foreign = XML::LibXML::Element->new("foreign");
       $foreign->setAttribute("lang","ar");
       my $refnode = XML::LibXML::Element->new("ref");
@@ -657,12 +690,54 @@ sub fixEntry {
         $parent->replaceChild($foreign,$orth);
       }
     }
-#  } elsif ($eq eq "FSOTF") {
-    # this code assumes that we have is the <orth> text going to the end of line
+  } elsif ($seq eq "FSOTF") {
+    # this code assumes that we have is the Arabic <foreign> followed by  <orth> text going to the end of line
     # and the new line starts with Arabic which is tagged with foreign
     # So if we have visually : F1O1F2
     # The sequence should be : O1F1F2
-#    $fixtype = 8;
+
+    $fixtype = 8;
+    my $max = length($seq) - 1;
+    my $foreigntext = "";
+    my $ix = index $seq,"O";
+
+    my $orth = $nodes[$ix];
+    $linkid = $orth->getAttribute("orthid");
+    $linktext = $orth->textContent;
+    my @words = split /\s+/,$linktext;
+    $linkword = pop @words;
+    $linktext = join ' ',@words;
+    $linktext .= " ";
+
+    my $foreign = XML::LibXML::Element->new("foreign");
+    $foreign->setAttribute("lang","ar");
+
+    my $refnode = XML::LibXML::Element->new("ref");
+    $refnode->setAttribute("cref",$linkid);
+    $refnode->setAttribute("target",$linkword);
+    $refnode->setAttribute("n",$orthindex);
+    $refnode->setAttribute("type",$fixtype);
+    $refnode->setAttribute("subtype",$seq);
+    $refnode->setAttribute("lang","ar");
+
+    $foreign->appendText($linktext);
+    $foreign->appendChild($refnode);
+
+    # get the first foreign, we are going to replace this with our own
+    my $f = shift @nodes;
+
+    my $parent = $f->parentNode;
+
+    $foreigntext .= $f->textContent;
+    my $n = $nodes[$#nodes];
+    $foreigntext .= " " . $n->textContent;
+
+    $foreign->appendText($foreigntext);
+
+    for (my $i=0;$i <= $#nodes;$i++) {
+      $parent->removeChild($nodes[$i]);
+    }
+    $parent->replaceChild($foreign,$f);
 
   } else {
     $ix = index $seq,"O";
@@ -672,6 +747,9 @@ sub fixEntry {
     $linktext = $orth->textContent;
     my @words = split /\s+/,$linktext;
     $linkword = $words[$#words];
+    $linkword = pop @words;
+    $linktext = join ' ',@words;
+    $linktext .= " ";
     my $foreign = XML::LibXML::Element->new("foreign");
     $foreign->setAttribute("lang","ar");
     my $refnode = XML::LibXML::Element->new("ref");
@@ -1182,7 +1260,7 @@ if ($fixup) {
 else {
   $fixup = 1;
 }
-my $logfile = File::Spec->catfile($logdir,"orths.log");
+my $logfile = File::Spec->catfile($logdir,"orths$node.log");
 open($logfh,">:encoding(UTF8)",$logfile) or die "Cannot open logfile $@\n";
 if ($logdir eq getcwd()) {
   print $logfh sprintf "<orth> report for dbid %s\n\n",$dbid;
