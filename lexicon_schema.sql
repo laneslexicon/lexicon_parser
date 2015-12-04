@@ -6,7 +6,8 @@ CREATE TABLE links (id integer primary key, linkid integer,orthid text default N
 CREATE INDEX 'fromnode_link' on links (fromnode asc);
 CREATE INDEX 'status_index' on links (status asc);
 CREATE INDEX 'linkid_index' on links (linkid asc);
-
+CREATE INDEX 'orthid_index' on links (orthid asc);
+CREATE INDEX 'matchtype_index' on links (matchtype asc);
 CREATE INDEX 'word_index' on entry (word asc);
 CREATE INDEX 'headword_index' on entry (headword asc);
 CREATE INDEX 'broot_index' on entry (broot asc);

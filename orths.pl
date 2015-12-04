@@ -18,6 +18,7 @@ my $dbh;
 my $logDir;
 my $dbname;
 my $xmlfile;
+my $xmlsource;
 my $verbose=0;
 my $export=0;
 my $node = "";
@@ -27,6 +28,7 @@ my $fixup=0;
 my $dryrun=0;
 my $arrowCount=0;
 my $lh;
+my $lq;
 my $writeCount = 0;
 my $updateCount = 0;
 my $showtext = 0;
@@ -39,6 +41,7 @@ my $logdir;
 my $logfh;
 my $inputdb;
 my $outputdb;
+my $updaterun = 0;
 #
 # sql variables
 #
@@ -355,7 +358,25 @@ sub processEntry {
         print STDERR "Pattern error\n";
         exit;
       }
-      $fixtype = fixEntry($orthindex,$p,@n);
+      #  $lh = $dbh->prepare("update links set orthfixtype = ?,orthpattern = ?,orthindex = ? where linkid = ?");
+      #
+      # for updates we need to read the link record and set the @target attribute appropriately
+      #
+      my $tonode;
+      if ($updaterun) {
+        $lq->bind_param(1,$linkid);
+        $lq->execute();
+        if ($lq->err ) {
+          print STDERR "Error unable to query link record " . $lq->err . " error: " . $lq->errstr . "\n";
+        }
+        else {
+          my $rec = $lq->fetchrow_hashref;
+          if (length($rec->{tonode}) > 0) {
+            $tonode =$rec->{tonode};
+          }
+        }
+      }
+      $fixtype = fixEntry($orthindex,$p,$tonode,@n);
       if ($fixtype == -1) {
         if (! exists $notfixed{$p} ) {
           $notfixed{$p} = 0;
@@ -364,7 +385,6 @@ sub processEntry {
       }
       $t .= "[$fixtype]" . "\n";
       $t .= $vtext if $verbose;
-      #  $lh = $dbh->prepare("update links set orthfixtype = ?,orthpattern = ?,orthindex = ? where linkid = ?");
       if (! $dryrun ) {
         $lh->bind_param(1,$fixtype);
         $lh->bind_param(2,$p);
@@ -419,6 +439,7 @@ sub processEntry {
 sub fixEntry {
   my $orthindex = shift;
   my $seq = shift;
+  my $tonode = shift;
   my @nodes = @_;
 
   my $ix = 0;
@@ -460,6 +481,7 @@ sub fixEntry {
     $refnode->setAttribute("type",$fixtype);
     $refnode->setAttribute("subtype",$seq);
     $refnode->setAttribute("lang","ar");
+    $refnode->setAttribute("select",$tonode) if $tonode;
     $foreign->appendChild($refnode);
     my $parent = $orth->parentNode;
     $parent->replaceChild($foreign,$orth);
@@ -497,6 +519,7 @@ sub fixEntry {
     $refnode->setAttribute("type",$fixtype);
     $refnode->setAttribute("subtype",$seq);
     $refnode->setAttribute("lang","ar");
+    $refnode->setAttribute("select",$tonode) if $tonode;
 
     $foreign->appendText($linktext);
     $foreign->appendChild($refnode);
@@ -535,6 +558,7 @@ sub fixEntry {
     $refnode->setAttribute("type",$fixtype);
     $refnode->setAttribute("subtype",$seq);
     $refnode->setAttribute("lang","ar");
+    $refnode->setAttribute("select",$tonode) if $tonode;
     $foreign->appendChild($refnode);
     $foreign->appendText($linktext);
     $parent = $orth->parentNode;
@@ -566,6 +590,7 @@ sub fixEntry {
     $refnode->setAttribute("cref",$linkid);
     $refnode->setAttribute("target",$linkword);
     $refnode->setAttribute("n",$orthindex);
+    $refnode->setAttribute("select",$tonode) if $tonode;
     if ($seq =~ /L/) {
       $foreign->appendText($foreigntext);
       $foreign->appendText($linktext);
@@ -611,6 +636,7 @@ sub fixEntry {
     $refnode->setAttribute("cref",$linkid);
     $refnode->setAttribute("target",$linkword);
     $refnode->setAttribute("n",$orthindex);
+    $refnode->setAttribute("select",$tonode) if $tonode;
     $foreign->appendText("$foreignbefore ");
     $foreign->appendText($linktext);
     $foreign->appendChild($refnode);
@@ -671,6 +697,7 @@ sub fixEntry {
       $refnode->setAttribute("lang","ar");
       $refnode->setAttribute("type",$fixtype);
       $refnode->setAttribute("subtype",$seq);
+      $refnode->setAttribute("select",$tonode) if $tonode;
       $foreign->appendText($linktext);
       $foreign->appendChild($refnode);
       $parent = $orth->parentNode;
@@ -719,6 +746,7 @@ sub fixEntry {
     $refnode->setAttribute("type",$fixtype);
     $refnode->setAttribute("subtype",$seq);
     $refnode->setAttribute("lang","ar");
+    $refnode->setAttribute("select",$tonode) if $tonode;
 
     $foreign->appendText($linktext);
     $foreign->appendChild($refnode);
@@ -759,6 +787,7 @@ sub fixEntry {
     $refnode->setAttribute("type",$fixtype);
     $refnode->setAttribute("subtype",$seq);
     $refnode->setAttribute("lang","ar");
+    $refnode->setAttribute("select",$tonode) if $tonode;
     $foreign->appendChild($refnode);
     $foreign->appendText($linktext);
     my $parent = $orth->parentNode;
@@ -1007,7 +1036,7 @@ sub convertNode {
       my  $text = XML::LibXML::Text->new( $a );
       $ar->replaceChild($text,$cn[0]);
     }
-    print sprintf "%10s %10s %5d %s\n",$root,$ar->nodeName,scalar(@cn),$t;
+#    print sprintf "%10s %10s %5d %s\n",$root,$ar->nodeName,scalar(@cn),$t;
   }
   # set orthid
   my $ix = 1;
@@ -1028,8 +1057,9 @@ sub convertNode {
 #
 sub processPerseusFile {
   my $filename = shift;
-
+  my $targets = shift;
   my $writeCount = 0;
+  my %targetnodes;
   if (! -e $filename ) {
     print STDERR "Requested Perseus xml file not found:$filename\n";
     exit 0;
@@ -1041,21 +1071,38 @@ sub processPerseusFile {
   }
   my $uq = $dbh->prepare("update entry set xml = ? where id = ?");
 
-  open IN,"<$filename";
-  binmode IN,":encoding(UTF-8)";
-  my $xml = "";
-  while (<IN>) {
-    $xml .= $_;
+
+
+  if ($targets) {
+    my @x = split /,/,$targets;
+    foreach my $y (@x) {
+      $targetnodes{$y} = 1;
+    }
   }
+  # open IN,"<$filename";
+  # binmode IN,":encoding(UTF-8)";
+  # my $xml = "";
+  # while (<IN>) {
+  #   $xml .= $_;
+  # }
   my $parser = XML::LibXML->new;
   $parser->set_options("line_numbers" => "parser","suppress_errors" => 1);
   #  my $parser = new XML::DOM::Parser;
-  my $doc = $parser->parse_string($xml);
+  my $doc = $parser->parse_file($filename);
   $doc->setEncoding("UTF-8");
   my @nodes = $doc->getElementsByTagName ("entryFree");
+  my $ok;
   foreach my $node (@nodes) {
+    $ok = 1;
     my $nodeid = $node->getAttribute("id");
-    if ($nodeid) { # && ($nodeid eq "n1128")) {
+    if (! $nodeid ) {
+      $ok = 0;
+    }
+    elsif ($targets) {
+      $ok = exists $targetnodes{$nodeid};
+    }
+    if ($ok) { # && ($nodeid eq "n1128")) {
+      print STDERR "Doing node $nodeid\n";
       my $ret = convertNode($nodeid,$node);
       $fq->bind_param(1,$nodeid);
       $fq->bind_param(2,$ret->{word});
@@ -1083,6 +1130,7 @@ sub processPerseusFile {
         my $f = processEntry($ret->{xml});
         $dryrun = $v;
         #  return {xml => $nodes->[0]->toString,orths => scalar(@orths), text => $t};
+        #  we need to restore any @select attributes from link record
         print STDERR "New XML:\n";
         print STDERR $f->{xml} . "\n";
         print STDERR $f->{text};
@@ -1099,7 +1147,7 @@ sub processPerseusFile {
       }
     }
     else {
-      print STDERR "entry at line %d has no id, cannot convert\n",$node->line_number();
+      #print STDERR sprintf "entry at line %d has no id, cannot convert\n",$node->line_number();
     }
   }
   if ($writeCount > 0) {
@@ -1167,7 +1215,8 @@ GetOptions(
            "export" => \$export,
            "with-word" => \$withword,
            "buck" => \$buckwalter, # show buckwalter transliteration, development only
-           "help" => \$showhelp
+           "help" => \$showhelp,
+           "source=s" => \$xmlsource
 
           );
 if ($showhelp) {
@@ -1183,6 +1232,7 @@ if ($showhelp) {
   print STDERR "\t--no-fix          Just report on the orth entries, don't fix them\n";
   print STDERR "\t--with-word       (Development use : generating surround <word> tags in the output XML)\n";
   print STDERR "\t--out-template    Output XML using the supplied value as a filename template, replacing\n";
+  print STDERR "\t--source          XML source file for use with --node\n";
   print STDERR "\t                  the literal NODE by the node number\n;For example, --out-template test-NODE.xml\n";
   print STDERR "\t--help      print this\n";
   exit 1;
@@ -1260,16 +1310,50 @@ if ($fixup) {
 else {
   $fixup = 1;
 }
-my $logfile = File::Spec->catfile($logdir,"orths$node.log");
+my $logfile;
+if ($node && ($node !~ /,/)) {
+  $logfile = File::Spec->catfile($logdir,"orths$node.log");
+}
+else {
+  $logfile = File::Spec->catfile($logdir,"orths.log");
+}
 open($logfh,">:encoding(UTF8)",$logfile) or die "Cannot open logfile $@\n";
 if ($logdir eq getcwd()) {
   print $logfh sprintf "<orth> report for dbid %s\n\n",$dbid;
 }
+#
+# the perseus process routines need this to set the @select
+#
+$lq = $dbh->prepare("select * from links where orthid = ?");
+#
+# We have updated the Perseus source file for a number of entries and
+# want to update the database
+#  --source ../xml/_A0.xml --node n1126,n1234
+#
+# See the warnings below
+#
+if ($node && $xmlsource) {
+  if (! -e $xmlsource) {
+    print STDERR "Cannot find XML source file : $xmlsource\n";
+    exit 0;
+  }
+  $updaterun = 1;
+  processPerseusFile($xmlsource,$node);
+  exit 0;
+}
+#
+# A single Perseus format file containing an entry. Actually this would work
+# for an entire Perseus file but it would break stuff because we are skipping
+# a lot of the validation checks in lane.pl
+#
+# Only do this for entries you know to be "standard"
+#
 if ($xmlfile) {
   if (! -e $xmlfile) {
     print STDERR "Cannot find the input XML file supplied : $xmlfile\n";
     exit 0;
   }
+  $updaterun = 1;
   processPerseusFile($xmlfile);
   exit 0;
 }

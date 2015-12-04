@@ -74,6 +74,8 @@ devbuild:
 	./version.sh
 	perl lane.pl --db $(DBNAME) --initdb --overwrite -dir ../xml --no-context --verbose --log-dir ../logs --sql ./lexicon_schema.sql --do-all --show-progress --with-perseus
 	perl links.pl --db $(DBNAME) --log-dir ../logs --heads
+	perl orths.pl --db $(DBNAME) --dbout lexicon.sqlite --log-dir ../logs --verbose
+	perl links.pl --db lexicon.sqlite --log-dir ../logs --links
 #
 #
 #      run this to get a complete database
