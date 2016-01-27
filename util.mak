@@ -86,7 +86,7 @@ full:
 	perl lane.pl --db lexicon.sqlite --initdb --overwrite --dir ../xml --no-context --verbose --logbase lexicon --log-dir ../logs --sql ./lexicon_schema.sql
 	cp lexicon.sqlite /tmp
 	perl lane.pl --db lexicon.sqlite --xrefs
-	perl lane.pl --db lexicon.sqlite --diacritics
+#	perl lane.pl --db lexicon.sqlite --diacritics
 	perl links.pl --db lexicon.sqlite --log-dir ../logs --links
 	perl reports.pl --db lexicon.sqlite --log-dir ../logs --dbid `cat LASTRUNID` --dir ../xml 
 buck:
