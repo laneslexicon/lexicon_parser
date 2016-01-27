@@ -33,6 +33,7 @@ my $writeCount = 0;
 my $updateCount = 0;
 my $showtext = 0;
 my $withword = 0;
+my $backup = 0;
 my $outfile;
 my %np;
 my %notfixed;
@@ -311,6 +312,7 @@ sub getSiblings {
   }
   return {'nodes' => \@nodes, 'types' => $s};
 }
+
 sub processEntry {
   my $xml = shift;
   my $nxml;
@@ -323,9 +325,10 @@ sub processEntry {
   my $nodes = $doc->getElementsByTagName ("entryFree");
   my @orths = $doc->findnodes('//orth[@type="arrow"]');
   my $orthindex = 0;
-  my $t;
+  my $t = "";
   my $fixtype = 0;
   my $linkid;
+
   foreach my $orth (@orths) {
     $orthindex++;
     my $nb = getSiblings($orth,-1); ## siblings before
@@ -593,6 +596,7 @@ sub fixEntry {
     $refnode->setAttribute("select",$tonode) if $tonode;
     if ($seq =~ /L/) {
       $foreign->appendText($foreigntext);
+      $foreign->appendText(" ");
       $foreign->appendText($linktext);
       $foreign->appendChild($refnode);
       $fixtype = 4;
@@ -797,7 +801,7 @@ sub fixEntry {
 }
 #################################################################
 #
-#  This never updates the database
+#  This is redundant
 #
 #
 #################################################################
@@ -882,18 +886,6 @@ sub processNode {
 ################################################################
 #  buckwalter conversion
 #
-#  to load the errors as table:
-#       run with --no-context
-#       open log in emacs and M-x org-mode
-#       mark whole buffer
-#       C-u C-c |
-#   (C-u sets delimiter to ,)
-#
-#   2:  double question mark
-#   3:  ampersand
-#   4:  A@ converted to L
-#   5:  non Buckwalter character (that is not punctuation or space)
-#   6:  A_ converted to I
 ################################################################
 sub convertString {
   my $t = shift;
@@ -1012,17 +1004,15 @@ sub insertTropical {
   $x .= substr($xml,$lastpos);
   return $x;
 }
+##
+#n this does the same as lane.pl does when it loads the database but WITHOUT any of the checks
+#
+#
+##
 sub convertNode {
   my $nodeid = shift;
   my $node = shift;
 
-  # check root
-  my $rootnode = $node->parentNode;
-  my $root = "";
-
-  if ($rootnode->nodeName eq "div2") {
-    $root = $rootnode->getAttribute("n");
-  }
   # convert arabic
   my $bword = $node->getAttribute("key");
   $node->setAttribute("key",convertString($bword));
@@ -1064,7 +1054,7 @@ sub processPerseusFile {
     print STDERR "Requested Perseus xml file not found:$filename\n";
     exit 0;
   }
-  my $fq = $dbh->prepare("select id,xml from entry where nodeid = ? and bword = ?");
+  my $fq = $dbh->prepare("select id,xml from entry where nodeid = ?");
   if ( $fq->err ) {
     die "ERROR executing node find SQL:" . $fq->err . " error msg: " . $fq->errstr . "\n";
     exit 0;
@@ -1079,12 +1069,7 @@ sub processPerseusFile {
       $targetnodes{$y} = 1;
     }
   }
-  # open IN,"<$filename";
-  # binmode IN,":encoding(UTF-8)";
-  # my $xml = "";
-  # while (<IN>) {
-  #   $xml .= $_;
-  # }
+
   my $parser = XML::LibXML->new;
   $parser->set_options("line_numbers" => "parser","suppress_errors" => 1);
   #  my $parser = new XML::DOM::Parser;
@@ -1092,6 +1077,7 @@ sub processPerseusFile {
   $doc->setEncoding("UTF-8");
   my @nodes = $doc->getElementsByTagName ("entryFree");
   my $ok;
+  print STDERR "Processing file:$filename\n" if $verbose;
   foreach my $node (@nodes) {
     $ok = 1;
     my $nodeid = $node->getAttribute("id");
@@ -1101,11 +1087,22 @@ sub processPerseusFile {
     elsif ($targets) {
       $ok = exists $targetnodes{$nodeid};
     }
-    if ($ok) { # && ($nodeid eq "n1128")) {
-      print STDERR "Doing node $nodeid\n";
-      my $ret = convertNode($nodeid,$node);
+    if ($ok) {
+      #
+      # get the key attribute, if this contains arabic then assume we have processed this file
+      # before and skip the conversion from Perseus to our format
+      #
+      my $ret;
+      my $key = $node->getAttribute("key");
+      if ($key =~ /(\p{InArabic}+)/) {
+        $ret = { xml => $node->toString,id => $nodeid,word => $key};
+      }
+      else {
+        $ret = convertNode($nodeid,$node);
+      }
+
       $fq->bind_param(1,$nodeid);
-      $fq->bind_param(2,$ret->{word});
+#      $fq->bind_param(2,$ret->{word});
       $fq->execute;
 
       if ( $fq->err ) {
@@ -1118,35 +1115,36 @@ sub processPerseusFile {
       }
       else {
         # save a backup copy of the xml
-        open OUT,">$nodeid.xml.back";
-        binmode OUT,":encoding(UTF-8)";
-        print OUT decode("UTF-8",$rec->{xml});
-        close OUT;
-        my $v = $dryrun;
-        # do not update the links table
-        $dryrun = 1;
-        print STDERR "Old XML:\n";
-        print STDERR $ret->{xml} . "\n";
-        my $f = processEntry($ret->{xml});
-        $dryrun = $v;
-        #  return {xml => $nodes->[0]->toString,orths => scalar(@orths), text => $t};
-        #  we need to restore any @select attributes from link record
-        print STDERR "New XML:\n";
-        print STDERR $f->{xml} . "\n";
-        print STDERR $f->{text};
-        if (! $dryrun ) {
-          $uq->bind_param(1,$f->{xml});
-          $uq->bind_param(2,$rec->{id});
-          $uq->execute;
-          if ( $uq->err ) {
-            die "ERROR executing node update SQL:" . $uq->err . " error msg: " . $uq->errstr . "\n";
-            exit 0;
+          my $v = $dryrun;
+          # do not update the links table
+          $dryrun = 1;
+          #        print STDERR "Old XML:\n";
+          #        print STDERR $ret->{xml} . "\n";
+          my $f = processEntry($ret->{xml});
+          $dryrun = $v;
+          #  return {xml => $nodes->[0]->toString,orths => scalar(@orths), text => $t};
+          #  we need to restore any @select attributes from link record
+          #       print STDERR "New XML:\n";
+          #        print STDERR $f->{xml} . "\n";
+          print $logfh $f->{text};
+          if (! $dryrun ) {
+            if ($backup) {
+              open OUT,">$nodeid.xml.back";
+              binmode OUT,":encoding(UTF-8)";
+              print OUT decode("UTF-8",$rec->{xml});
+              close OUT;
+            }
+            $uq->bind_param(1,$f->{xml});
+            $uq->bind_param(2,$rec->{id});
+            $uq->execute;
+            if ( $uq->err ) {
+              die "ERROR executing node update SQL:" . $uq->err . " error msg: " . $uq->errstr . "\n";
+              exit 0;
+            }
+            $writeCount++;
           }
-          $writeCount++;
         }
-      }
-    }
-    else {
+    } else {
       #print STDERR sprintf "entry at line %d has no id, cannot convert\n",$node->line_number();
     }
   }
@@ -1198,12 +1196,14 @@ sub processPerseusFile {
 #
 # perl orths.pl --db 151119.sqlite --perseus n1128.xml
 #
+# To update a database with a fixed link e.g one with <lb/> added:
+#
+# perl orths.pl --db lexicon.sqlite --perseus ../xml/_A0.xml --node n1126
 ##########################################################################
 
 GetOptions(
            "db=s" => \$inputdb,
            "dbout=s" => \$outputdb,
-           "perseus=s" => \$xmlfile,
            "out-template=s" => \$outfile,
            "verbose" => \$verbose,
            "node=s" => \$node,
@@ -1216,7 +1216,9 @@ GetOptions(
            "with-word" => \$withword,
            "buck" => \$buckwalter, # show buckwalter transliteration, development only
            "help" => \$showhelp,
-           "source=s" => \$xmlsource
+           "xml=s" => \$xmlfile,
+           "backup" => \$backup
+
 
           );
 if ($showhelp) {
@@ -1229,12 +1231,15 @@ if ($showhelp) {
   print STDERR "\t--show            Show the before/after XML\n";
   print STDERR "\t--export          Export the current link table records before updating\n";
   print STDERR "\t--verbose         Show relevant node text in log\n";
-  print STDERR "\t--no-fix          Just report on the orth entries, don't fix them\n";
-  print STDERR "\t--with-word       (Development use : generating surround <word> tags in the output XML)\n";
-  print STDERR "\t--out-template    Output XML using the supplied value as a filename template, replacing\n";
-  print STDERR "\t--source          XML source file for use with --node\n";
-  print STDERR "\t                  the literal NODE by the node number\n;For example, --out-template test-NODE.xml\n";
-  print STDERR "\t--help      print this\n";
+#  print STDERR "\t--no-fix          Just report on the orth entries, don't fix them\n";
+#  print STDERR "\t--with-word       (Development use : generating surround <word> tags in the output XML)\n";
+
+  print STDERR "\t--xml             XML source file for use with --node\n";
+  print STDERR "\t--backup          Create a backup copy of each node before updating\n";
+  print STDERR "\t--out-template    Output XML using the supplied value as a filename template, replacing \n";
+  print STDERR "\t                  the literal NODE by the node number\n";
+  print STDERR "\t                  For example, --out-template test-NODE.xml\n";
+  print STDERR "\t--help            Print this\n";
   exit 1;
 
 }
@@ -1317,6 +1322,7 @@ if ($node && ($node !~ /,/)) {
 else {
   $logfile = File::Spec->catfile($logdir,"orths.log");
 }
+print STDERR "Writing log entryies to $logfile\n" if $verbose;
 open($logfh,">:encoding(UTF8)",$logfile) or die "Cannot open logfile $@\n";
 if ($logdir eq getcwd()) {
   print $logfh sprintf "<orth> report for dbid %s\n\n",$dbid;
@@ -1325,22 +1331,6 @@ if ($logdir eq getcwd()) {
 # the perseus process routines need this to set the @select
 #
 $lq = $dbh->prepare("select * from links where orthid = ?");
-#
-# We have updated the Perseus source file for a number of entries and
-# want to update the database
-#  --source ../xml/_A0.xml --node n1126,n1234
-#
-# See the warnings below
-#
-if ($node && $xmlsource) {
-  if (! -e $xmlsource) {
-    print STDERR "Cannot find XML source file : $xmlsource\n";
-    exit 0;
-  }
-  $updaterun = 1;
-  processPerseusFile($xmlsource,$node);
-  exit 0;
-}
 #
 # A single Perseus format file containing an entry. Actually this would work
 # for an entire Perseus file but it would break stuff because we are skipping
@@ -1353,8 +1343,15 @@ if ($xmlfile) {
     print STDERR "Cannot find the input XML file supplied : $xmlfile\n";
     exit 0;
   }
-  $updaterun = 1;
-  processPerseusFile($xmlfile);
+  processPerseusFile($xmlfile,$node);
+  print $logfh "\nOrth Patterns:\n";
+  foreach my $p (sort keys %np) {
+    print $logfh sprintf "%10s %d\n",$p,$np{$p};
+  }
+  print $logfh "Not fixed patterns\n";
+  foreach my $p (sort keys %notfixed) {
+    print $logfh sprintf "%10s %d\n",$p,$notfixed{$p};
+  }
   exit 0;
 }
 #
@@ -1395,8 +1392,11 @@ if ( $sth->err ) {
     die "ERROR preparing node SQL:" . $sth->err . " error msg: " . $sth->errstr . "\n";
     exit 0;
 
-  }
-
+}
+#
+#
+#
+#
 my @nodes;
 if ($node) {
   @nodes = split /,/,$node;
