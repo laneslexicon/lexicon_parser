@@ -996,6 +996,11 @@ sub insertSenses {
     }
   }
   $x .= substr($xml,$lastpos);
+  #
+  # Perseus seems to have inserted 0x2015 (horizontal bar) before
+  # each b-type separator. Strip these out.
+  #
+  $x =~ s/―//g;
   return $x;
 }
 sub insertTropical {
