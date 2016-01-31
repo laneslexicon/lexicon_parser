@@ -364,7 +364,7 @@ sub processEntry {
       print STDERR "Pattern error\n";
       exit;
     }
-    #  $lh = $dbh->prepare("update links set orthfixtype = ?,orthpattern = ?,orthindex = ? where linkid = ?");
+
       # for updates we need to read the link record and set the @target attribute appropriately
     my $tonode;
     #  this is not an update, but --report can be run without a db
@@ -797,54 +797,6 @@ sub fixEntry {
   }
   return $fixtype;
 }
-sub processNode {
-  my $xml = shift;
-
-  my $ret = processEntry($xml);
-
-  $arrowCount += $ret->{orths};
-  print $logfh sprintf "%s %s %s\n%s\n",$nodeid,$broot,$bword,$ret->{text} if $ret->{orths} > 0;
-
-  print $logfh $ret->{xml} if $showxml;
-  print ">>>>>> $outfile\n";
-  if ($xml eq $ret->{xml}) {
-    return;
-  }
-
-  if ($outfile) {
-    my $filename = $outfile;
-    if ($filename =~ /NODE/) {
-      $filename =~ s/NODE/$nodeid/;
-      open OUT,">$filename";
-    }
-    else {
-      open OUT, ">>$filename";
-    }
-    binmode OUT, ":encoding(UTF-8)";
-    print OUT "<word>" if $withword;
-    print OUT $ret->{xml};
-    print OUT "</word>" if $withword;
-    close OUT;
-  }
-
-  # update xml
-  if ( $updaterun ) {
-    $usth->bind_param(1,$ret->{xml});
-    $usth->bind_param(2,$id);
-    $usth->execute();
-    $writeCount++;
-    if ( $usth->err ) {
-      die "Update error $nodeid :" . $usth->err . " error msg: " . $usth->errstr . "\n";
-    }
-  }
-
-  if ($writeCount > 500) {
-    $dbh->commit;
-    $updateCount += $writeCount;
-    $writeCount = 0;
-  }
-  $processcount++;
-}
 ################################################################
 #  buckwalter conversion
 #
@@ -1009,7 +961,7 @@ sub convertNode {
 #
 sub processPerseusFile {
   my $filename = shift;
-  my $targets = shift;
+
   my $writeCount = 0;
   my %targetnodes;
   if (! -e $filename ) {
@@ -1024,7 +976,11 @@ sub processPerseusFile {
   my $uq = $dbh->prepare("update entry set xml = ? where id = ?");
 
   my $checknode = scalar(keys %requirenodes);
-
+  my $outfh;
+  if ($outfile && ($outfile !~ /NODE/)) {
+    open $outfh,">:encoding(UTF8)", $outfile or die "Cannot open output file: $outfile\n";
+    print $outfh "<updates>\n";
+  }
 
 
   my $parser = XML::LibXML->new;
@@ -1049,6 +1005,11 @@ sub processPerseusFile {
       # get the key attribute, if this contains arabic then assume we have processed this file
       # before and skip the conversion from Perseus to our format
       #
+      if ($outfile && ($outfile =~ /NODE/)) {
+        my $f = $outfile;
+        $f =~ s/NODE/$nodeid/;
+        open $outfh,">:encoding(UTF8)", $f or die "Cannot open output file: $f\n";
+      }
       my $ret;
       my $key = $node->getAttribute("key");
       if ($key =~ /(\p{InArabic}+)/) {
@@ -1057,11 +1018,11 @@ sub processPerseusFile {
       else {
         $ret = convertNode($nodeid,$node);
       }
-
+      #
+      # check we have a matching node, otherwise nothing to update
+      #
       $fq->bind_param(1,$nodeid);
-#      $fq->bind_param(2,$ret->{word});
       $fq->execute;
-
       if ( $fq->err ) {
         die "ERROR executing node find SQL:" . $fq->err . " error msg: " . $fq->errstr . "\n";
         exit 0;
@@ -1071,14 +1032,15 @@ sub processPerseusFile {
         print STDERR "Cannot find matching node in entry table, update failed\n";
       }
       else {
-          # do not update the links table
-          #        print STDERR "Old XML:\n";
-          #        print STDERR $ret->{xml} . "\n";
-          my $f = processEntry($ret->{xml});
-          #       print STDERR "New XML:\n";
-          #        print STDERR $f->{xml} . "\n";
-          print $logfh $f->{text};
-          if (! $updaterun ) {
+        my $f = processEntry($ret->{xml});
+        print $logfh $f->{text};
+        if ($outfile) {
+          print $outfh $f->{xml};
+          if ($outfile =~ /NODE/) {
+            close $outfh;
+          }
+        }
+        if ( $updaterun ) {
             if ($backup) {
               open OUT,">$nodeid.xml.back";
               binmode OUT,":encoding(UTF-8)";
@@ -1102,7 +1064,36 @@ sub processPerseusFile {
   if ($writeCount > 0) {
     $dbh->commit;
   }
+  if ($outfile && ($outfile !~ /NODE/)) {
+    print $outfh "</updates>\n";
+    close $outfh;
+  }
   return;
+}
+sub writeOutputXml {
+  my $nodeid = shift;
+  my $oldXml = shift;
+  my $newXml = shift;
+
+  if (length($outfile) == 0) {
+    return;
+  }
+  my $filename = $outfile;
+  if ($filename =~ /NODE/) {
+    $filename =~ s/NODE/$nodeid/;
+    open OUT, ">$filename" or die "Cannot open output file: $filename\n";
+    binmode OUT, ":utf8";
+    print OUT $newXml;
+    close OUT;
+    return;
+  }
+  if ($processcount == 0) {
+  }
+  open OUT, ">>$filename" or die "Cannot open output file: $filename\n";
+  binmode OUT, ":utf8";
+  print OUT $newXml;
+  close OUT;
+  $processcount++;
 }
 sub report {
   my $filename = shift;
@@ -1294,10 +1285,10 @@ GetOptions(
           );
 if ($showhelp) {
   print STDERR "perl orths.pl\n";
-  print STDERR "\t--db              Name of input database\n";
-  print STDERR "\t--dbout           Name of output database if different (optional)\n";
+  print STDERR "\t--db   <db file>           Name of input database\n";
+  print STDERR "\t--dbout <db file>           Name of output database if different (optional)\n";
   print STDERR "\t--node            Process only the given node or comma separated list of nodes\n";
-  print STDERR "\t--nodes           Process the nodes listed one per line in the file\n";
+  print STDERR "\t--nodes <filename> Process the nodes listed one per line in the supplied file\n";
   print STDERR "\t--log-dir         Write log file to given directory, defaults to current\n";
   print STDERR "\t--dry-run         Do not update the database\n";
   print STDERR "\t--xml-out         Output fixed XML as one file\n";
@@ -1321,7 +1312,7 @@ if ($showhelp) {
 
 }
 #
-$updaterun = $dryrun;
+$updaterun = ! $dryrun;
 setupNodes();
 #
 # report does not need a database
@@ -1353,7 +1344,7 @@ if ($inputdb && ! -e $inputdb ) {
   print STDERR "Database not found : $inputdb,terminating\n";
   exit 0;
 }
-if (! $dryrun ) {
+if ( $updaterun ) {
   if ($export) {
     my $tm = localtime;
     my $sqlfile = sprintf "links-%04d-%02d-%02d.sql",$tm->year+1900,($tm->mon)+1,$tm->mday;
@@ -1372,6 +1363,7 @@ if (! $dryrun ) {
       exit;
     }
   }
+  ###### TODO makes this Windows compat
   if ($outputdb) {
     system("cp $inputdb $outputdb");
     openDb("$outputdb");
@@ -1420,6 +1412,7 @@ if ($logdir eq getcwd()) {
 # the perseus process routines need this to set the @select
 #
 $lq = $dbh->prepare("select * from links where orthid = ?");
+$lh = $dbh->prepare("update links set orthfixtype = ?,orthpattern = ?,orthindex = ? where linkid = ?");
 #
 # A single Perseus format file containing an entry. Actually this would work
 # for an entire Perseus file but it would break stuff because we are skipping
@@ -1432,7 +1425,7 @@ if ($xmlfile) {
     print STDERR "Cannot find the input XML file supplied : $xmlfile\n";
     exit 0;
   }
-  processPerseusFile($xmlfile,$inputnode);
+  processPerseusFile($xmlfile);
   print $logfh "\nOrth Patterns:\n";
   foreach my $p (sort keys %np) {
     print $logfh sprintf "%10s %d\n",$p,$np{$p};
@@ -1442,6 +1435,62 @@ if ($xmlfile) {
     print $logfh sprintf "%10s %d\n",$p,$notfixed{$p};
   }
   exit 0;
+}
+exit 0;
+####################################################################################################
+####################################################################################################
+####################################################################################################
+############################ everything after this redundant #######################################
+####################################################################################################
+####################################################################################################
+####################################################################################################
+sub processNode {
+  my $xml = shift;
+
+  my $ret = processEntry($xml);
+
+  $arrowCount += $ret->{orths};
+  print $logfh sprintf "%s %s %s\n%s\n",$nodeid,$broot,$bword,$ret->{text} if $ret->{orths} > 0;
+
+  print $logfh $ret->{xml} if $showxml;
+
+  if ($xml eq $ret->{xml}) {
+    return;
+  }
+
+  if ($outfile) {
+    my $filename = $outfile;
+    if ($filename =~ /NODE/) {
+      $filename =~ s/NODE/$nodeid/;
+      open OUT,">$filename";
+    }
+    else {
+      open OUT, ">>$filename";
+    }
+    binmode OUT, ":encoding(UTF-8)";
+    print OUT "<word>" if $withword;
+    print OUT $ret->{xml};
+    print OUT "</word>" if $withword;
+    close OUT;
+  }
+
+  # update xml
+  if ( $updaterun ) {
+    $usth->bind_param(1,$ret->{xml});
+    $usth->bind_param(2,$id);
+    $usth->execute();
+    $writeCount++;
+    if ( $usth->err ) {
+      die "Update error $nodeid :" . $usth->err . " error msg: " . $usth->errstr . "\n";
+    }
+  }
+
+  if ($writeCount > 500) {
+    $dbh->commit;
+    $updateCount += $writeCount;
+    $writeCount = 0;
+  }
+  $processcount++;
 }
 #
 #  we are going to read the nodes from the db and update as required. This should not normally be
