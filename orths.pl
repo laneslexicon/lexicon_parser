@@ -27,6 +27,8 @@ my $showxml=0;
 my $fixup=0;
 my $dryrun=0;
 my $arrowCount=0;
+my $report = 0;
+my $broken = 0;
 my $lh;
 my $lq;
 my $writeCount = 0;
@@ -343,7 +345,7 @@ sub processEntry {
       print STDERR sprintf "%s %d : <orth> has no link id, terminating\n",$nodes->[0]->getAttribute("id"),$orthindex;
       exit 0;
     }
-    $t .= sprintf "%10s  %2d  %-15s ",$linkid,$orthindex,":$p:";
+    $t .= sprintf "%-10s  %2d  %-15s ",$linkid,$orthindex,":$p:";
     my @n = @{$nb->{nodes}};
     push @n , $orth;
     push (@n,@{$na->{nodes}});
@@ -380,7 +382,7 @@ sub processEntry {
         }
       }
       $fixtype = fixEntry($orthindex,$p,$tonode,@n);
-      if ($fixtype == -1) {
+      if ($fixtype == 0) {
         if (! exists $notfixed{$p} ) {
           $notfixed{$p} = 0;
         }
@@ -459,7 +461,7 @@ sub fixEntry {
   my $linkid;
   my $linktext;
   my $linkword;
-  my $fixtype = -1;
+  my $fixtype = 0;     # not fixed
   if ($seq =~ /^WO$|^O$|^SO$/) {
     $ix = index $seq,"O";
     my $orth = $nodes[$ix];
@@ -774,7 +776,7 @@ sub fixEntry {
   } else {
     $ix = index $seq,"O";
     my $orth = $nodes[$ix];
-    $fixtype = -1;
+    $fixtype = 0;
     $linkid = $orth->getAttribute("orthid");
     $linktext = $orth->textContent;
     my @words = split /\s+/,$linktext;
@@ -1153,6 +1155,76 @@ sub processPerseusFile {
   }
   return;
 }
+sub report {
+  my $filename = shift;
+  my $targets = shift;
+  my $writeCount = 0;
+  my %targetnodes;
+  if (! -e $filename ) {
+    print STDERR "Requested Perseus xml file not found:$filename\n";
+    exit 0;
+  }
+
+  my $text;
+  if ($targets) {
+    my @x = split /,/,$targets;
+    foreach my $y (@x) {
+      $targetnodes{$y} = 1;
+    }
+  }
+  $updaterun = 0;
+  $dryrun = 1;
+  $fixup = 1;
+  my $parser = XML::LibXML->new;
+  $parser->set_options("line_numbers" => "parser","suppress_errors" => 1);
+  #  my $parser = new XML::DOM::Parser;
+  my $doc = $parser->parse_file($filename);
+  $doc->setEncoding("UTF-8");
+  my @nodes = $doc->getElementsByTagName ("entryFree");
+  my $ok;
+  my $notfixed = 0;
+  foreach my $node (@nodes) {
+    $ok = 1;
+    my $nodeid = $node->getAttribute("id");
+    if (! $nodeid ) {
+      $ok = 0;
+    }
+    elsif ($targets) {
+      $ok = exists $targetnodes{$nodeid};
+    }
+    if ($ok) {
+      #
+      # get the key attribute, if this contains arabic then assume we have processed this file
+      # before and skip the conversion from Perseus to our format
+      #
+      my $ret;
+      my $key = $node->getAttribute("key");
+      if ($key =~ /(\p{InArabic}+)/) {
+        $ret = { xml => $node->toString,id => $nodeid,word => $key};
+      }
+      else {
+        $ret = convertNode($nodeid,$node);
+      }
+      print $ret->{xml} . "\n" if $showxml;
+      my $f = processEntry($ret->{xml});
+      #  return {xml => $nodes->[0]->toString,orths => scalar(@orths), text => $t};
+      print $f->{xml} . "\n" if $showxml;
+      if ($f->{orths} > 0) {
+        my @l = split '\n',$f->{text};
+        foreach my $line (@l) {
+          if ($line =~ /\[0\]/) {
+            $notfixed++;
+            print "$line\n";
+          }
+          else {
+            print "$line\n" unless $broken;
+          }
+        }
+      }
+    }
+  }
+  return $notfixed;
+}
 ##########################################################################
 #
 #   n208 has consecutive orths arrows
@@ -1199,6 +1271,13 @@ sub processPerseusFile {
 # To update a database with a fixed link e.g one with <lb/> added:
 #
 # perl orths.pl --db lexicon.sqlite --perseus ../xml/_A0.xml --node n1126
+
+# To show all info an a node:
+# --xml /tmp/b0.xml --node n2033 --report --verbose --show
+#
+#  To show broken for all xml files:
+#
+#--report --xml ../xml  --broken
 ##########################################################################
 
 GetOptions(
@@ -1217,7 +1296,9 @@ GetOptions(
            "buck" => \$buckwalter, # show buckwalter transliteration, development only
            "help" => \$showhelp,
            "xml=s" => \$xmlfile,
-           "backup" => \$backup
+           "backup" => \$backup,
+           "report" => \$report,
+           "broken" => \$broken
 
 
           );
@@ -1240,12 +1321,36 @@ if ($showhelp) {
   print STDERR "\t                  the literal NODE by the node number\n";
   print STDERR "\t                  For example, --out-template test-NODE.xml\n";
   print STDERR "\t--help            Print this\n";
+
+  print STDERR "For example to show all information on a node,\n";
+  print STDERR "perl orths.pl --xml ../xml/b0.xml --node n2033 --report --verbose --show\n";
+  print STDERR "\nTo To show not-fixed orths for all xml files:\n";
+  print STDERR "perl orths.pl --report --xml ../xml  --broken\n";
   exit 1;
 
 }
 #   /tmp/lexicon.sqlite is the 'clean' version
 #
 #
+if ($report) {
+  my @arr;
+  if (-d $xmlfile) {
+    find sub { if ((-f $_) && ($File::Find::name =~ /xml$/))  {  push @arr,$File::Find::name; } }, $xmlfile;
+  }
+  elsif (-e $xmlfile ) {
+    push @arr, $xmlfile;
+  }
+  my $total = 0;
+  foreach my $file (@arr) {
+    my $count = report($file,$node);
+    print "$file   not fixed : $count\n";
+    $total += $count;
+  }
+  if (scalar(@arr) > 1) {
+    print "Total not fixed : $total\n";
+  }
+  exit 0;
+}
 if (! $inputdb ) {
   print STDERR "No input database name supplied, use --db <name of sqlite db>,terminating\n";
   exit 0;
