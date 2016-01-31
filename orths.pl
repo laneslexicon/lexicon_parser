@@ -368,6 +368,9 @@ sub processEntry {
       # for updates we need to read the link record and set the @target attribute appropriately
       #
       my $tonode;
+      #
+      #  this is not an update, but --report can be run without a db
+      #
       if ($updaterun) {
         $lq->bind_param(1,$linkid);
         $lq->execute();
@@ -390,7 +393,7 @@ sub processEntry {
       }
       $t .= "[$fixtype]" . "\n";
       $t .= $vtext if $verbose;
-      if (! $dryrun ) {
+      if ($updaterun ) {
         $lh->bind_param(1,$fixtype);
         $lh->bind_param(2,$p);
         $lh->bind_param(3,$orthindex);
@@ -869,7 +872,7 @@ sub processNode {
   }
   if ($fixup && ($xml ne $ret->{xml})) {
     # update xml
-    if (! $dryrun ) {
+    if ( $updaterun ) {
       $usth->bind_param(1,$ret->{xml});
       $usth->bind_param(2,$id);
       $usth->execute();
@@ -1116,7 +1119,6 @@ sub processPerseusFile {
         print STDERR "Cannot find matching node in entry table, update failed\n";
       }
       else {
-        # save a backup copy of the xml
           my $v = $dryrun;
           # do not update the links table
           $dryrun = 1;
@@ -1124,12 +1126,10 @@ sub processPerseusFile {
           #        print STDERR $ret->{xml} . "\n";
           my $f = processEntry($ret->{xml});
           $dryrun = $v;
-          #  return {xml => $nodes->[0]->toString,orths => scalar(@orths), text => $t};
-          #  we need to restore any @select attributes from link record
           #       print STDERR "New XML:\n";
           #        print STDERR $f->{xml} . "\n";
           print $logfh $f->{text};
-          if (! $dryrun ) {
+          if (! $updaterun ) {
             if ($backup) {
               open OUT,">$nodeid.xml.back";
               binmode OUT,":encoding(UTF-8)";
