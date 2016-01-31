@@ -14,6 +14,7 @@ use XML::LibXML;
 use Getopt::Long;
 use utf8;
 use Time::localtime;
+my %requirenodes;
 my $dbh;
 my $logDir;
 my $dbname;
@@ -21,10 +22,10 @@ my $xmlfile;
 my $xmlsource;
 my $verbose=0;
 my $export=0;
-my $node = "";
+my $inputnode = "";
+my $nodefile = "";
 my $buckwalter=0;
 my $showxml=0;
-my $fixup=0;
 my $dryrun=0;
 my $arrowCount=0;
 my $report = 0;
@@ -45,6 +46,7 @@ my $logfh;
 my $inputdb;
 my $outputdb;
 my $updaterun = 0;
+my $processcount = 0;
 #
 # sql variables
 #
@@ -358,62 +360,53 @@ sub processEntry {
       $txt =~ s/\n//g;
       $vtext .= ">>>$txt<<<\n";
     }
-    if ($fixup) {
-      if (length($p) ne scalar(@n)) {
-        print STDERR "Pattern error\n";
-        exit;
-      }
-      #  $lh = $dbh->prepare("update links set orthfixtype = ?,orthpattern = ?,orthindex = ? where linkid = ?");
-      #
+    if (length($p) ne scalar(@n)) {
+      print STDERR "Pattern error\n";
+      exit;
+    }
+    #  $lh = $dbh->prepare("update links set orthfixtype = ?,orthpattern = ?,orthindex = ? where linkid = ?");
       # for updates we need to read the link record and set the @target attribute appropriately
-      #
-      my $tonode;
-      #
-      #  this is not an update, but --report can be run without a db
-      #
-      if ($updaterun) {
-        $lq->bind_param(1,$linkid);
-        $lq->execute();
-        if ($lq->err ) {
-          print STDERR "Error unable to query link record " . $lq->err . " error: " . $lq->errstr . "\n";
-        }
-        else {
-          my $rec = $lq->fetchrow_hashref;
-          if (length($rec->{tonode}) > 0) {
-            $tonode =$rec->{tonode};
-          }
-        }
-      }
-      $fixtype = fixEntry($orthindex,$p,$tonode,@n);
-      if ($fixtype == 0) {
-        if (! exists $notfixed{$p} ) {
-          $notfixed{$p} = 0;
-        }
-        $notfixed{$p} = $notfixed{$p} + 1;
-      }
-      $t .= "[$fixtype]" . "\n";
-      $t .= $vtext if $verbose;
-      if ($updaterun ) {
-        $lh->bind_param(1,$fixtype);
-        $lh->bind_param(2,$p);
-        $lh->bind_param(3,$orthindex);
-        $lh->bind_param(4,$linkid);
-        $lh->execute();
-        if ($lh->err ) {
-          print STDERR "Error unable to update link record, terminating " . $lh->err . " error msg: " . $lh->errstr . "\n";
-          $dryrun = 1;
-          exit 0;
-        } else {
-          $writeCount++;
+    my $tonode;
+    #  this is not an update, but --report can be run without a db
+    if ($updaterun) {
+      $lq->bind_param(1,$linkid);
+      $lq->execute();
+      if ($lq->err ) {
+        print STDERR "Error unable to query link record " . $lq->err . " error: " . $lq->errstr . "\n";
+      } else {
+        my $rec = $lq->fetchrow_hashref;
+        if (length($rec->{tonode}) > 0) {
+          $tonode =$rec->{tonode};
         }
       }
     }
-    else {
-      $t .= "\n";
-    }
-  }
 
-  # return the fixed xml
+    $fixtype = fixEntry($orthindex,$p,$tonode,@n);
+    if ($fixtype == 0) {
+      if (! exists $notfixed{$p} ) {
+        $notfixed{$p} = 0;
+      }
+      $notfixed{$p} = $notfixed{$p} + 1;
+    }
+    $t .= "[$fixtype]" . "\n";
+    $t .= $vtext if $verbose;
+    if ($updaterun ) {
+      $lh->bind_param(1,$fixtype);
+      $lh->bind_param(2,$p);
+      $lh->bind_param(3,$orthindex);
+      $lh->bind_param(4,$linkid);
+      $lh->execute();
+      if ($lh->err ) {
+        print STDERR "Error unable to update link record, terminating " . $lh->err . " error msg: " . $lh->errstr . "\n";
+        exit 0;
+      }
+      else {
+        $writeCount++;
+      }
+    }
+#    $t .= "\n";
+    # return the fixed xml
+  }
   return {xml => $nodes->[0]->toString,orths => scalar(@orths), text => $t};
 }
 #
@@ -804,53 +797,6 @@ sub fixEntry {
   }
   return $fixtype;
 }
-#################################################################
-#
-#  This is redundant
-#
-#
-#################################################################
-sub processFile {
-  my $filename = shift;
-
-  if (! -e $filename ) {
-    print STDERR "Supplied xml file not found:$filename\n";
-    exit 0;
-  }
-  open IN,"<$filename";
-  binmode IN,":encoding(UTF-8)";
-  my $xml = "";
-  while (<IN>) {
-    $xml .= $_;
-  }
-  my $parser = XML::LibXML->new;
-  $parser->set_options("line_numbers" => "parser","suppress_errors" => 1);
-  #  my $parser = new XML::DOM::Parser;
-  my $doc = $parser->parse_string($xml);
-  $doc->setEncoding("UTF-8");
-  my @nodes = $doc->getElementsByTagName ("entryFree");
-  foreach my $node (@nodes) {
-    my $nodeid = $node->getAttribute("id");
-    my $word = $node->getAttribute("key");
-    my $nodexml = $node->toString;
-    print $logfh $nodexml if $showxml;
-    #  perseus($xml);
-    my $ret = processEntry($nodexml);
-    print $logfh sprintf "\n\n%s %s \n%s\n",$nodeid,$word,$ret->{text} if $ret->{orths} > 0;
-    print $logfh $ret->{xml} if $showxml;
-    if ($outfile) {
-      my $filename = $outfile;
-      $filename =~ s/NODE/$nodeid/;
-      open OUT,">$filename";
-      binmode OUT, ":encoding(UTF-8)";
-      print OUT "<word>" if $withword;
-      print OUT $ret->{xml};
-      print OUT "</word>" if $withword;
-      close OUT;
-    }
-  }
-  return;
-}
 sub processNode {
   my $xml = shift;
 
@@ -860,33 +806,44 @@ sub processNode {
   print $logfh sprintf "%s %s %s\n%s\n",$nodeid,$broot,$bword,$ret->{text} if $ret->{orths} > 0;
 
   print $logfh $ret->{xml} if $showxml;
+  print ">>>>>> $outfile\n";
+  if ($xml eq $ret->{xml}) {
+    return;
+  }
+
   if ($outfile) {
     my $filename = $outfile;
-    $filename =~ s/NODE/$nodeid/;
-    open OUT,">$filename";
+    if ($filename =~ /NODE/) {
+      $filename =~ s/NODE/$nodeid/;
+      open OUT,">$filename";
+    }
+    else {
+      open OUT, ">>$filename";
+    }
     binmode OUT, ":encoding(UTF-8)";
     print OUT "<word>" if $withword;
     print OUT $ret->{xml};
     print OUT "</word>" if $withword;
     close OUT;
   }
-  if ($fixup && ($xml ne $ret->{xml})) {
-    # update xml
-    if ( $updaterun ) {
-      $usth->bind_param(1,$ret->{xml});
-      $usth->bind_param(2,$id);
-      $usth->execute();
-      $writeCount++;
-      if ( $usth->err ) {
-        die "Update error $node :" . $usth->err . " error msg: " . $usth->errstr . "\n";
-      }
+
+  # update xml
+  if ( $updaterun ) {
+    $usth->bind_param(1,$ret->{xml});
+    $usth->bind_param(2,$id);
+    $usth->execute();
+    $writeCount++;
+    if ( $usth->err ) {
+      die "Update error $nodeid :" . $usth->err . " error msg: " . $usth->errstr . "\n";
     }
   }
+
   if ($writeCount > 500) {
     $dbh->commit;
     $updateCount += $writeCount;
     $writeCount = 0;
   }
+  $processcount++;
 }
 ################################################################
 #  buckwalter conversion
@@ -1066,14 +1023,9 @@ sub processPerseusFile {
   }
   my $uq = $dbh->prepare("update entry set xml = ? where id = ?");
 
+  my $checknode = scalar(keys %requirenodes);
 
 
-  if ($targets) {
-    my @x = split /,/,$targets;
-    foreach my $y (@x) {
-      $targetnodes{$y} = 1;
-    }
-  }
 
   my $parser = XML::LibXML->new;
   $parser->set_options("line_numbers" => "parser","suppress_errors" => 1);
@@ -1089,8 +1041,8 @@ sub processPerseusFile {
     if (! $nodeid ) {
       $ok = 0;
     }
-    elsif ($targets) {
-      $ok = exists $targetnodes{$nodeid};
+    elsif ($checknode) {
+      $ok = exists $requirenodes{$nodeid};
     }
     if ($ok) {
       #
@@ -1119,13 +1071,10 @@ sub processPerseusFile {
         print STDERR "Cannot find matching node in entry table, update failed\n";
       }
       else {
-          my $v = $dryrun;
           # do not update the links table
-          $dryrun = 1;
           #        print STDERR "Old XML:\n";
           #        print STDERR $ret->{xml} . "\n";
           my $f = processEntry($ret->{xml});
-          $dryrun = $v;
           #       print STDERR "New XML:\n";
           #        print STDERR $f->{xml} . "\n";
           print $logfh $f->{text};
@@ -1157,24 +1106,19 @@ sub processPerseusFile {
 }
 sub report {
   my $filename = shift;
-  my $targets = shift;
+
   my $writeCount = 0;
   my %targetnodes;
   if (! -e $filename ) {
     print STDERR "Requested Perseus xml file not found:$filename\n";
     exit 0;
   }
+  my $checknode = scalar(keys %requirenodes);
 
   my $text;
-  if ($targets) {
-    my @x = split /,/,$targets;
-    foreach my $y (@x) {
-      $targetnodes{$y} = 1;
-    }
-  }
+
   $updaterun = 0;
   $dryrun = 1;
-  $fixup = 1;
   my $parser = XML::LibXML->new;
   $parser->set_options("line_numbers" => "parser","suppress_errors" => 1);
   #  my $parser = new XML::DOM::Parser;
@@ -1189,8 +1133,8 @@ sub report {
     if (! $nodeid ) {
       $ok = 0;
     }
-    elsif ($targets) {
-      $ok = exists $targetnodes{$nodeid};
+    elsif ($checknode > 0) {
+      $ok = exists $requirenodes{$nodeid};
     }
     if ($ok) {
       #
@@ -1224,6 +1168,52 @@ sub report {
     }
   }
   return $notfixed;
+}
+sub isNode {
+  my $t = shift;
+
+  $t =~ s/^\s+//g;
+  $t =~ s/\s+$//g;
+  if ($t =~ /^[0-9]+$/) {
+    return  sprintf "n$t";
+  }
+  if ($t =~ /^n[0-9]+$/) {
+    return $t;
+  }
+  return undef;
+}
+sub setupNodes {
+  my $node;
+
+  if ($inputnode =~ /,/) {
+    my @a = split /,/,$inputnode;
+    foreach my $x (@a) {
+      $node = isNode($x);
+      $requirenodes{$node} = 1 if defined $node;
+    }
+  }
+  else {
+    $node = isNode($inputnode);
+    $requirenodes{$node} = 1 if defined $node;
+  }
+
+  if ($nodefile) {
+    if (! -e $nodefile ) {
+      print STDERR "Cannot find node file $nodefile\n";
+      return;
+    }
+  }
+  else {
+    return;
+  }
+  open IN, "<$nodefile" or die "error opening node file $@\n";
+  while(<IN>) {
+    chomp;
+    $node = isNode($_);
+    $requirenodes{$node} = 1 if defined $node;
+  }
+  close IN;
+
 }
 ##########################################################################
 #
@@ -1283,13 +1273,13 @@ sub report {
 GetOptions(
            "db=s" => \$inputdb,
            "dbout=s" => \$outputdb,
-           "out-template=s" => \$outfile,
+           "xml-out=s" => \$outfile,
            "verbose" => \$verbose,
-           "node=s" => \$node,
+           "node=s" => \$inputnode,
+           "nodes=s" => \$nodefile,
            "show" => \$showxml,
            "dry-run" => \$dryrun,
            "log-dir=s" => \$logdir,
-           "no-fix" => \$fixup,
            "very" => \$showtext,
            "export" => \$export,
            "with-word" => \$withword,
@@ -1304,20 +1294,19 @@ GetOptions(
           );
 if ($showhelp) {
   print STDERR "perl orths.pl\n";
-  print STDERR "\t--db              Name of input database (required)\n";
+  print STDERR "\t--db              Name of input database\n";
   print STDERR "\t--dbout           Name of output database if different (optional)\n";
-  print STDERR "\t--node            Do <orths> for only the given node or comma separated list of nodes\n";
+  print STDERR "\t--node            Process only the given node or comma separated list of nodes\n";
+  print STDERR "\t--nodes           Process the nodes listed one per line in the file\n";
   print STDERR "\t--log-dir         Write log file to given directory, defaults to current\n";
   print STDERR "\t--dry-run         Do not update the database\n";
+  print STDERR "\t--xml-out         Output fixed XML as one file\n";
   print STDERR "\t--show            Show the before/after XML\n";
   print STDERR "\t--export          Export the current link table records before updating\n";
   print STDERR "\t--verbose         Show relevant node text in log\n";
-#  print STDERR "\t--no-fix          Just report on the orth entries, don't fix them\n";
 #  print STDERR "\t--with-word       (Development use : generating surround <word> tags in the output XML)\n";
-
-  print STDERR "\t--xml             XML source file for use with --node\n";
+  print STDERR "\t--xml             XML source file or directory\n";
   print STDERR "\t--backup          Create a backup copy of each node before updating\n";
-  print STDERR "\t--out-template    Output XML using the supplied value as a filename template, replacing \n";
   print STDERR "\t                  the literal NODE by the node number\n";
   print STDERR "\t                  For example, --out-template test-NODE.xml\n";
   print STDERR "\t--help            Print this\n";
@@ -1326,11 +1315,16 @@ if ($showhelp) {
   print STDERR "perl orths.pl --xml ../xml/b0.xml --node n2033 --report --verbose --show\n";
   print STDERR "\nTo To show not-fixed orths for all xml files:\n";
   print STDERR "perl orths.pl --report --xml ../xml  --broken\n";
+  print STDERR "\nTo apply a fixed entry\n";
+  print STDERR "perl orths.pl --xml /tmp/b0.xml --db lexicon.sqlite --node n1998\n";
   exit 1;
 
 }
-#   /tmp/lexicon.sqlite is the 'clean' version
 #
+$updaterun = $dryrun;
+setupNodes();
+#
+# report does not need a database
 #
 if ($report) {
   my @arr;
@@ -1342,7 +1336,7 @@ if ($report) {
   }
   my $total = 0;
   foreach my $file (@arr) {
-    my $count = report($file,$node);
+    my $count = report($file);
     print "$file   not fixed : $count\n";
     $total += $count;
   }
@@ -1410,19 +1404,9 @@ if (! $logdir ) {
 else {
   $logdir = getLogDirectory($logdir,$dbid);
 }
-
-#
-# changed the option to from fix to no-fix, so flip it
-#
-if ($fixup) {
-  $fixup = 0;
-}
-else {
-  $fixup = 1;
-}
 my $logfile;
-if ($node && ($node !~ /,/)) {
-  $logfile = File::Spec->catfile($logdir,"orths$node.log");
+if ($inputnode && ($inputnode !~ /,/)) {
+  $logfile = File::Spec->catfile($logdir,"orths$inputnode.log");
 }
 else {
   $logfile = File::Spec->catfile($logdir,"orths.log");
@@ -1448,7 +1432,7 @@ if ($xmlfile) {
     print STDERR "Cannot find the input XML file supplied : $xmlfile\n";
     exit 0;
   }
-  processPerseusFile($xmlfile,$node);
+  processPerseusFile($xmlfile,$inputnode);
   print $logfh "\nOrth Patterns:\n";
   foreach my $p (sort keys %np) {
     print $logfh sprintf "%10s %d\n",$p,$np{$p};
@@ -1460,9 +1444,10 @@ if ($xmlfile) {
   exit 0;
 }
 #
-#  prepare the update SQL
+#  we are going to read the nodes from the db and update as required. This should not normally be
+#  used as we don't have any fixed xml to update with
 #
-
+sub redundant {
 if (! $dryrun ) {
   $usql = "update entry set xml = ? where id = ?";
   $usth = $dbh->prepare($usql);
@@ -1477,7 +1462,7 @@ if (! $dryrun ) {
   }
 
 }
-if ($node) {
+if ($inputnode && ($inputnode !~ /,/)) {
   $sql = sprintf "select id,root,broot,page,word,bword,nodeid,XML from entry where nodeid = ? order by nodenum asc";
 }
 else {
@@ -1503,8 +1488,8 @@ if ( $sth->err ) {
 #
 #
 my @nodes;
-if ($node) {
-  @nodes = split /,/,$node;
+if ($inputnode) {
+  @nodes = split /,/,$inputnode;
   foreach my $n (@nodes) {
     if ($n !~ /^n\d+/) {
       $n = "n" . $n;
@@ -1540,4 +1525,54 @@ foreach my $p (sort keys %np) {
 print $logfh "Not fixed patterns\n";
 foreach my $p (sort keys %notfixed) {
   print $logfh sprintf "%10s %d\n",$p,$notfixed{$p};
+}
+}
+#################################################################
+#
+#  This is redundant
+#
+#
+#################################################################
+sub processFile {
+  my $filename = shift;
+
+  print STDERR "WE SHOULD NOT BE HERE\n";
+  exit 0;
+  if (! -e $filename ) {
+    print STDERR "Supplied xml file not found:$filename\n";
+    exit 0;
+  }
+  open IN,"<$filename";
+  binmode IN,":encoding(UTF-8)";
+  my $xml = "";
+  while (<IN>) {
+    $xml .= $_;
+  }
+  my $parser = XML::LibXML->new;
+  $parser->set_options("line_numbers" => "parser","suppress_errors" => 1);
+  #  my $parser = new XML::DOM::Parser;
+  my $doc = $parser->parse_string($xml);
+  $doc->setEncoding("UTF-8");
+  my @nodes = $doc->getElementsByTagName ("entryFree");
+  foreach my $node (@nodes) {
+    my $nodeid = $node->getAttribute("id");
+    my $word = $node->getAttribute("key");
+    my $nodexml = $node->toString;
+    print $logfh $nodexml if $showxml;
+    #  perseus($xml);
+    my $ret = processEntry($nodexml);
+    print $logfh sprintf "\n\n%s %s \n%s\n",$nodeid,$word,$ret->{text} if $ret->{orths} > 0;
+    print $logfh $ret->{xml} if $showxml;
+    if ($outfile) {
+      my $filename = $outfile;
+      $filename =~ s/NODE/$nodeid/;
+      open OUT,">$filename";
+      binmode OUT, ":encoding(UTF-8)";
+      print OUT "<word>" if $withword;
+      print OUT $ret->{xml};
+      print OUT "</word>" if $withword;
+      close OUT;
+    }
+  }
+  return;
 }
