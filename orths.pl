@@ -1284,30 +1284,43 @@ GetOptions(
 
           );
 if ($showhelp) {
-  print STDERR "perl orths.pl\n";
-  print STDERR "\t--db   <db file>           Name of input database\n";
-  print STDERR "\t--dbout <db file>           Name of output database if different (optional)\n";
-  print STDERR "\t--node            Process only the given node or comma separated list of nodes\n";
-  print STDERR "\t--nodes <filename> Process the nodes listed one per line in the supplied file\n";
-  print STDERR "\t--log-dir         Write log file to given directory, defaults to current\n";
-  print STDERR "\t--dry-run         Do not update the database\n";
-  print STDERR "\t--xml-out         Output fixed XML as one file\n";
-  print STDERR "\t--show            Show the before/after XML\n";
-  print STDERR "\t--export          Export the current link table records before updating\n";
-  print STDERR "\t--verbose         Show relevant node text in log\n";
-#  print STDERR "\t--with-word       (Development use : generating surround <word> tags in the output XML)\n";
-  print STDERR "\t--xml             XML source file or directory\n";
-  print STDERR "\t--backup          Create a backup copy of each node before updating\n";
-  print STDERR "\t                  the literal NODE by the node number\n";
-  print STDERR "\t                  For example, --out-template test-NODE.xml\n";
-  print STDERR "\t--help            Print this\n";
+  print STDERR <<EOF;
+perl orths.pl
+\t--db   <db file>            Name of input database
+\t--dbout <db file>           Name of output database if different (optional)
+\t--node                      Process only the given node or comma separated list of nodes
+\t--nodes <filename>          Process the nodes listed one per line in the supplied file
+\t--log-dir                   Write log file to given directory, defaults to current
+\t--dry-run                   Do not update the database
+\t--xml-out  <output file>    Output fixed XML as either one file or individual files if the supplied
+\t                            names contains NODE, with NODE being replaced by the actual node id
+\t--show                      Show the before/after XML
+\t--export                    Export the current link table records before updating
+\t--verbose                   Show relevant node text in log
+\t--xml                       XML source file or directory
+\t--backup                    Create a backup copy of each node before updating
+\t--help                      Print this
 
-  print STDERR "For example to show all information on a node,\n";
-  print STDERR "perl orths.pl --xml ../xml/b0.xml --node n2033 --report --verbose --show\n";
-  print STDERR "\nTo To show not-fixed orths for all xml files:\n";
-  print STDERR "perl orths.pl --report --xml ../xml  --broken\n";
-  print STDERR "\nTo apply a fixed entry\n";
-  print STDERR "perl orths.pl --xml /tmp/b0.xml --db lexicon.sqlite --node n1998\n";
+
+Use cases
+
+1. To report on all the <orths> in a file
+
+    perl orths.pl --report --xml ../xml/b0.xml
+
+2. To show the original XML,the fixed XML and orth analysis for a node
+
+    perl orths.pl --report --xml ../xml/b0.xml --node n2033 --show
+
+3. To generate a fixed file for a node
+
+   perl orths.pl --db lexicon.sqlite --xml ../xml/b0.xml --node n2033 --dry-run --xml-out fixed.xml
+
+4. To apply corrected xml directly to the database
+
+   perl orths.pl --db lexicon.sqlite --xml ../xml/b0.xml --node n2033
+
+EOF
   exit 1;
 
 }
@@ -1437,191 +1450,3 @@ if ($xmlfile) {
   exit 0;
 }
 exit 0;
-####################################################################################################
-####################################################################################################
-####################################################################################################
-############################ everything after this redundant #######################################
-####################################################################################################
-####################################################################################################
-####################################################################################################
-sub processNode {
-  my $xml = shift;
-
-  my $ret = processEntry($xml);
-
-  $arrowCount += $ret->{orths};
-  print $logfh sprintf "%s %s %s\n%s\n",$nodeid,$broot,$bword,$ret->{text} if $ret->{orths} > 0;
-
-  print $logfh $ret->{xml} if $showxml;
-
-  if ($xml eq $ret->{xml}) {
-    return;
-  }
-
-  if ($outfile) {
-    my $filename = $outfile;
-    if ($filename =~ /NODE/) {
-      $filename =~ s/NODE/$nodeid/;
-      open OUT,">$filename";
-    }
-    else {
-      open OUT, ">>$filename";
-    }
-    binmode OUT, ":encoding(UTF-8)";
-    print OUT "<word>" if $withword;
-    print OUT $ret->{xml};
-    print OUT "</word>" if $withword;
-    close OUT;
-  }
-
-  # update xml
-  if ( $updaterun ) {
-    $usth->bind_param(1,$ret->{xml});
-    $usth->bind_param(2,$id);
-    $usth->execute();
-    $writeCount++;
-    if ( $usth->err ) {
-      die "Update error $nodeid :" . $usth->err . " error msg: " . $usth->errstr . "\n";
-    }
-  }
-
-  if ($writeCount > 500) {
-    $dbh->commit;
-    $updateCount += $writeCount;
-    $writeCount = 0;
-  }
-  $processcount++;
-}
-#
-#  we are going to read the nodes from the db and update as required. This should not normally be
-#  used as we don't have any fixed xml to update with
-#
-sub redundant {
-if (! $dryrun ) {
-  $usql = "update entry set xml = ? where id = ?";
-  $usth = $dbh->prepare($usql);
-  if ( $usth->err ) {
-    die "ERROR preparing update SQL:" . $usth->err . " error msg: " . $usth->errstr . "\n";
-    exit 0;
-  }
-  $lh = $dbh->prepare("update links set orthfixtype = ?,orthpattern = ?,orthindex = ? where orthid = ?");
-  if ( $lh->err ) {
-    die "ERROR preparing update link SQL:" . $lh->err . " error msg: " . $lh->errstr . "\n";
-    exit 0;
-  }
-
-}
-if ($inputnode && ($inputnode !~ /,/)) {
-  $sql = sprintf "select id,root,broot,page,word,bword,nodeid,XML from entry where nodeid = ? order by nodenum asc";
-}
-else {
-  $sql = "select id,root,broot,page,word,bword,nodeid,XML from entry order by nodenum asc";
-}
-#
-# don't do this with a live DB
-#
-if ($buckwalter) {
-  $sql =~ s/XML/perseusxml/;
-} else {
-  $sql =~ s/XML/xml/;
-}
-
-$sth = $dbh->prepare($sql);
-if ( $sth->err ) {
-    die "ERROR preparing node SQL:" . $sth->err . " error msg: " . $sth->errstr . "\n";
-    exit 0;
-
-}
-#
-#
-#
-#
-my @nodes;
-if ($inputnode) {
-  @nodes = split /,/,$inputnode;
-  foreach my $n (@nodes) {
-    if ($n !~ /^n\d+/) {
-      $n = "n" . $n;
-    }
-    $sth->bind_param(1,$n);
-    $sth->execute();
-    if ( $sth->err ) {
-      die "ERROR preparing node SQL:" . $sth->err . " error msg: " . $sth->errstr . "\n";
-      exit 0;
-    }
-    $sth->bind_columns(\$id,\$root,\$broot,\$page,\$word,\$bword,\$nodeid,\$xml);
-    $sth->fetch();
-    processNode($xml);
-  }
-}
-else {
-  $sth->execute();
-  $sth->bind_columns(\$id,\$root,\$broot,\$page,\$word,\$bword,\$nodeid,\$xml);
-  while ($sth->fetch) {
-    processNode($xml);
-  }
-}
-
-if ($writeCount > 0) {
-  $dbh->commit;
-  $updateCount += $writeCount;
-  $writeCount = 0;
-}
-print $logfh "Orth Patterns:\n";
-foreach my $p (sort keys %np) {
-  print $logfh sprintf "%10s %d\n",$p,$np{$p};
-}
-print $logfh "Not fixed patterns\n";
-foreach my $p (sort keys %notfixed) {
-  print $logfh sprintf "%10s %d\n",$p,$notfixed{$p};
-}
-}
-#################################################################
-#
-#  This is redundant
-#
-#
-#################################################################
-sub processFile {
-  my $filename = shift;
-
-  print STDERR "WE SHOULD NOT BE HERE\n";
-  exit 0;
-  if (! -e $filename ) {
-    print STDERR "Supplied xml file not found:$filename\n";
-    exit 0;
-  }
-  open IN,"<$filename";
-  binmode IN,":encoding(UTF-8)";
-  my $xml = "";
-  while (<IN>) {
-    $xml .= $_;
-  }
-  my $parser = XML::LibXML->new;
-  $parser->set_options("line_numbers" => "parser","suppress_errors" => 1);
-  #  my $parser = new XML::DOM::Parser;
-  my $doc = $parser->parse_string($xml);
-  $doc->setEncoding("UTF-8");
-  my @nodes = $doc->getElementsByTagName ("entryFree");
-  foreach my $node (@nodes) {
-    my $nodeid = $node->getAttribute("id");
-    my $word = $node->getAttribute("key");
-    my $nodexml = $node->toString;
-    print $logfh $nodexml if $showxml;
-    #  perseus($xml);
-    my $ret = processEntry($nodexml);
-    print $logfh sprintf "\n\n%s %s \n%s\n",$nodeid,$word,$ret->{text} if $ret->{orths} > 0;
-    print $logfh $ret->{xml} if $showxml;
-    if ($outfile) {
-      my $filename = $outfile;
-      $filename =~ s/NODE/$nodeid/;
-      open OUT,">$filename";
-      binmode OUT, ":encoding(UTF-8)";
-      print OUT "<word>" if $withword;
-      print OUT $ret->{xml};
-      print OUT "</word>" if $withword;
-      close OUT;
-    }
-  }
-  return;
-}
