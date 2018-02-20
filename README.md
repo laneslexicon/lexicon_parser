@@ -1,4 +1,6 @@
 
+For an overview of the project see [here](http://laneslexicon.github.io).
+
 This repository should be used in conjuction with the laneslexicon/xml repository
 
 ```
