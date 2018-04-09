@@ -988,7 +988,7 @@ sub insertSenses {
     $t = $1;
     $n = $2;
     $s = sprintf "-%s%d-",$t,$n;
-    $r = sprintf "<sense type=\"%s\" n=\"%d\">%s</sense>",$t,$n,$s,$s;
+    $r = sprintf "<sense type=\"%s\" n=\"%d\">%s</sense>",$t,$n,$s;
     if ($t && $n) {
       $x .= substr($xml,$lastpos,pos($xml) - $lastpos - length($s));
       $x .= $r;
