@@ -47,6 +47,8 @@ my $inputdb;
 my $outputdb;
 my $updaterun = 0;
 my $processcount = 0;
+my $commitCount = 500;
+my $allnodes = 0;
 #
 # sql variables
 #
@@ -375,8 +377,10 @@ sub processEntry {
         print STDERR "Error unable to query link record " . $lq->err . " error: " . $lq->errstr . "\n";
       } else {
         my $rec = $lq->fetchrow_hashref;
-        if (length($rec->{tonode}) > 0) {
-          $tonode =$rec->{tonode};
+        if (exists $rec->{tonode}) {
+          if (defined $rec->{tonode} && (length($rec->{tonode}) > 0)) {
+            $tonode =$rec->{tonode};
+          }
         }
       }
     }
@@ -885,7 +889,7 @@ sub insertSenses {
     $t = $1;
     $n = $2;
     $s = sprintf "-%s%d-",$t,$n;
-    $r = sprintf "<sense type=\"%s\" n=\"%d\">%s</sense>",$t,$n,$s,$s;
+    $r = sprintf "<sense type=\"%s\" n=\"%d\">%s</sense>",$t,$n,$s;
     if ($t && $n) {
       $x .= substr($xml,$lastpos,pos($xml) - $lastpos - length($s));
       $x .= $r;
@@ -1095,6 +1099,73 @@ sub writeOutputXml {
   close OUT;
   $processcount++;
 }
+sub processDatabase {
+
+  my $xml;
+  my $id;
+  my $writeCount = 0;
+  my %targetnodes;
+
+  my $fq = $dbh->prepare("select id,xml,nodeid from entry order by nodenum asc");
+  if ( $fq->err ) {
+    die "ERROR executing node find SQL:" . $fq->err . " error msg: " . $fq->errstr . "\n";
+    exit 0;
+  }
+  my $uq = $dbh->prepare("update entry set xml = ? where id = ?");
+
+
+  my $parser = XML::LibXML->new;
+  $parser->set_options("line_numbers" => "parser","suppress_errors" => 1);
+
+  #
+  #
+  #
+  $fq->execute();
+  while (my @entries = $fq->fetchrow_array()) {
+    if (scalar(@entries) < 2) {
+      next;
+    }
+    $xml = $entries[1];
+    $id = $entries[0];
+    #  my $parser = new XML::DOM::Parser;
+    my $doc = $parser->parse_string($xml);
+    $doc->setEncoding("UTF-8");
+    my @nodes = $doc->getElementsByTagName ("entryFree");
+    my $ok;
+
+    foreach my $node (@nodes) {
+      $ok = 1;
+#      print STDERR $xml . "\n\n";
+      my $f = processEntry($xml);
+      if ($f->{orths} > 0) {
+        print $logfh $f->{text};
+        if ( $updaterun ) {
+#          print STDERR $f->{xml} . "\n\n";
+#          printf STDERR "Updating node:%s %s\n",$entries[2],$f->{text} if $verbose;
+          $uq->bind_param(1,$f->{xml});
+          $uq->bind_param(2,$id);
+          $uq->execute;
+          if ( $uq->err ) {
+            die "ERROR executing node update SQL:" . $uq->err . " error msg: " . $uq->errstr . "\n";
+            exit 0;
+          }
+          $writeCount++;
+        } else {
+          #print STDERR sprintf "entry at line %d has no id, cannot convert\n",$node->line_number();
+        }
+      }
+    }
+    if ($writeCount > $commitCount) {
+      $dbh->commit;
+      $writeCount = 0;
+    }
+  }
+  if ($writeCount > 0) {
+    $dbh->commit;
+    $writeCount = 0;
+  }
+  return;
+}
 sub report {
   my $filename = shift;
 
@@ -1279,8 +1350,8 @@ GetOptions(
            "xml=s" => \$xmlfile,
            "backup" => \$backup,
            "report" => \$report,
-           "broken" => \$broken
-
+           "broken" => \$broken,
+           "all"    => \$allnodes
 
           );
 if ($showhelp) {
@@ -1299,6 +1370,7 @@ perl orths.pl
 \t--verbose                   Show relevant node text in log
 \t--xml                       XML source file or directory
 \t--backup                    Create a backup copy of each node before updating
+\t--all                       Do all nodes in the database
 \t--help                      Print this
 
 
@@ -1448,5 +1520,8 @@ if ($xmlfile) {
     print $logfh sprintf "%10s %d\n",$p,$notfixed{$p};
   }
   exit 0;
+}
+if ($allnodes) {
+  processDatabase();
 }
 exit 0;

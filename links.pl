@@ -790,6 +790,9 @@ sub setLinks {
     my $fixtype;
     $updateRequired = 0;
     $currentRecordId = $id;
+
+
+
     foreach my $node (@orths) {
       my $linktext;
       $#links = -1;             # clear old links
@@ -1042,5 +1045,6 @@ if ($nodeName) {
   }
 }
 else {
+  print STDERR "Attempting to fix all links\n";
   setLinks();
 }
